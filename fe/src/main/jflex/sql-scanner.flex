@@ -165,6 +165,7 @@ import org.apache.impala.analysis.SqlParserSymbols;
     keywordMap.put("on", new Integer(SqlParserSymbols.KW_ON));
     keywordMap.put("||", new Integer(SqlParserSymbols.KW_OR));
     keywordMap.put("or", new Integer(SqlParserSymbols.KW_OR));
+    keywordMap.put("orc", new Integer(SqlParserSymbols.KW_ORC));
     keywordMap.put("order", new Integer(SqlParserSymbols.KW_ORDER));
     keywordMap.put("outer", new Integer(SqlParserSymbols.KW_OUTER));
     keywordMap.put("over", new Integer(SqlParserSymbols.KW_OVER));

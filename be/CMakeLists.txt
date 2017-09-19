@@ -239,6 +239,7 @@ if (DOXYGEN_FOUND)
     ${CMAKE_SOURCE_DIR}/be/src/common/
     ${CMAKE_SOURCE_DIR}/be/src/exec/
     ${CMAKE_SOURCE_DIR}/be/src/exprs/
+    ${CMAKE_SOURCE_DIR}/be/src/orc/
     ${CMAKE_SOURCE_DIR}/be/src/runtime/
     ${CMAKE_SOURCE_DIR}/be/src/scheduling/
     ${CMAKE_SOURCE_DIR}/be/src/service/
@@ -365,6 +366,7 @@ set (IMPALA_LINK_LIBS
   Io
   kudu_util
   krpc
+  Orc
   Rpc
   rpc_header_proto
   rpc_introspection_proto
@@ -393,6 +395,7 @@ if (BUILD_SHARED_LIBS)
     Exec
     CodeGen
     Exprs
+    Orc
     Rpc
     Service
     security
@@ -535,6 +538,7 @@ add_subdirectory(src/exprs)
 add_subdirectory(src/kudu/security)
 add_subdirectory(src/kudu/rpc)
 add_subdirectory(src/kudu/util)
+add_subdirectory(src/orc)
 add_subdirectory(src/runtime)
 add_subdirectory(src/scheduling)
 add_subdirectory(src/statestore)

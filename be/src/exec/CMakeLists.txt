@@ -59,6 +59,7 @@ add_library(Exec
   hdfs-parquet-scanner.cc
   hdfs-parquet-scanner-ir.cc
   hdfs-parquet-table-writer.cc
+  hdfs-orc-scanner.cc
   hbase-scan-node.cc
   hbase-table-scanner.cc
   incr-stats-util.cc
@@ -108,3 +109,4 @@ ADD_BE_TEST(parquet-version-test)
 ADD_BE_TEST(row-batch-list-test)
 ADD_BE_TEST(incr-stats-util-test)
 ADD_BE_TEST(hdfs-avro-scanner-test)
+ADD_BE_TEST(hdfs-orc-scanner-test)
