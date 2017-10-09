@@ -934,13 +934,11 @@ void HdfsOrcScanner::Close(RowBatch* row_batch) {
   assemble_rows_timer_.Stop();
   assemble_rows_timer_.ReleaseCounter();
 
-  vector<THdfsCompression::type> compression_types;
+  THdfsCompression::type compression_type = THdfsCompression::NONE;
   if (postscript_.has_compression()) {
-    compression_types.push_back(TranslateCompressionKind(postscript_.compression()));
-  } else {
-    compression_types.push_back(THdfsCompression::NONE);
+    compression_type = TranslateCompressionKind(postscript_.compression());
   }
-  scan_node_->RangeComplete(THdfsFileFormat::ORC, compression_types);
+  scan_node_->RangeComplete(THdfsFileFormat::ORC, compression_type);
 
   for (int i = 0; i < filter_ctxs_.size(); ++i) {
     const FilterStats* stats = filter_ctxs_[i]->stats;
