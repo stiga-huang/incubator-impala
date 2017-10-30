@@ -43,9 +43,9 @@ class HdfsOrcScanner : public HdfsScanner {
 
     char* malloc(uint64_t size) override;
     void free(char* p) override;
-    MemPool* getMemPool() { return pool; }
+    MemPool* getMemPool() { return pool_; }
    private:
-    MemPool *pool;
+    MemPool *pool_;
   };
 
   class ScanRangeInputStream : public orc::InputStream {
@@ -117,6 +117,9 @@ class HdfsOrcScanner : public HdfsScanner {
   /// Starts out as true to move to the very first row group.
   bool advance_stripe_;
 
+  /// Indicates whether we are at the end of a stripe.
+  bool end_of_stripe_;
+
   /// Cached runtime filter contexts, one for each filter that applies to this column.
   vector<const FilterContext *> filter_ctxs_;
 
@@ -152,9 +155,12 @@ class HdfsOrcScanner : public HdfsScanner {
   /// Mem pool used in orc readers
   boost::scoped_ptr<OrcMemPool> reader_mem_pool_;
 
+  std::unique_ptr<orc::Reader> reader_;
+
   /// Orc reader will write slot values into this scratch batch for top-level tuples.
   /// See AssembleRows().
   std::unique_ptr<orc::ColumnVectorBatch> scratch_batch_;
+  int scratch_batch_tuple_idx_;
 
   /// File metadata protobuf object
   orc::proto::PostScript postscript_;
@@ -215,8 +221,7 @@ class HdfsOrcScanner : public HdfsScanner {
   /// Reads data using orc-reader to materialize instances of 'tuple_desc'.
   /// Returns a non-OK status if a non-recoverable error was encountered and execution
   /// of this query should be terminated immediately.
-  Status AssembleRows(const TupleDescriptor* tuple_desc, RowBatch* row_batch,
-      std::unique_ptr<orc::Reader> reader) WARN_UNUSED_RESULT;
+  Status AssembleRows(RowBatch* row_batch) WARN_UNUSED_RESULT;
 
   /// Function used by AssembleRows() to read a single row into 'tuple'.
   /// TODO:
@@ -238,6 +243,13 @@ class HdfsOrcScanner : public HdfsScanner {
   /// Scanner can call this with 0 rows to flush any pending resources (attached pools
   /// and io buffers) to minimize memory consumption.
   Status CommitRows(RowBatch* dst_batch, int num_rows) WARN_UNUSED_RESULT;
+
+  /// Evaluates runtime filters and conjuncts (if any) against the tuples in
+  /// 'scratch_batch_', and adds the surviving tuples to the given batch.
+  /// Transfers the ownership of tuple memory to the target batch when the
+  /// scratch batch is exhausted.
+  /// Returns the number of rows that should be committed to the given batch.
+  int TransferScratchTuples(RowBatch* dst_batch);
 
   /// Evaluates 'row' against the i-th runtime filter for this scan node and returns
   /// true if 'row' finds a match in the filter. Returns false otherwise.
@@ -271,6 +283,8 @@ class HdfsOrcScanner : public HdfsScanner {
   Status InitNewRange() { return Status::OK(); };
 
   inline THdfsCompression::type TranslateCompressionKind(::orc::proto::CompressionKind kind);
+
+  inline bool ScratchBatchNotEmpty();
 
   /// Unit test constructor
   HdfsOrcScanner();

@@ -100,7 +100,7 @@ Status HdfsOrcScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
         // the actual split (in InitColumns()). The original split is stored in the
         // metadata associated with the footer range.
         DiskIoMgr::ScanRange* footer_range;
-        if (footer_split != NULL) {
+        if (footer_split != nullptr) {
           footer_range = scan_node->AllocateScanRange(files[i]->fs,
               files[i]->filename.c_str(), footer_size, footer_start,
               split_metadata->partition_id, footer_split->disk_id(),
@@ -127,26 +127,26 @@ Status HdfsOrcScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
 }
 
 DiskIoMgr::ScanRange* HdfsOrcScanner::FindFooterSplit(HdfsFileDesc* file) {
-  DCHECK(file != NULL);
+  DCHECK(file != nullptr);
   for (int i = 0; i < file->splits.size(); ++i) {
     DiskIoMgr::ScanRange* split = file->splits[i];
     if (split->offset() + split->len() == file->file_length) return split;
   }
-  return NULL;
+  return nullptr;
 }
 
 namespace impala {
 
 HdfsOrcScanner::OrcMemPool::OrcMemPool(MemTracker* mem_tracker) {
-  this->pool = new MemPool(mem_tracker);
+  this->pool_ = new MemPool(mem_tracker);
 }
 
 HdfsOrcScanner::OrcMemPool::~OrcMemPool() {
-  delete pool;
+  delete pool_;
 }
 
 char* HdfsOrcScanner::OrcMemPool::malloc(uint64_t size) {
-  return reinterpret_cast<char*>(pool->Allocate(size));
+  return reinterpret_cast<char*>(pool_->Allocate(size));
 }
 
 void HdfsOrcScanner::OrcMemPool::free(char* p) {
@@ -156,7 +156,7 @@ void HdfsOrcScanner::OrcMemPool::free(char* p) {
 }
 
 void HdfsOrcScanner::ScanRangeInputStream::read(void* buf, uint64_t length,
-                                                uint64_t offset) {
+    uint64_t offset) {
   const DiskIoMgr::ScanRange* metadata_range = parent_->metadata_range_;
   const DiskIoMgr::ScanRange* split_range =
       reinterpret_cast<ScanRangeMetadata*>(metadata_range->meta_data())->original_split;
@@ -181,7 +181,8 @@ void HdfsOrcScanner::ScanRangeInputStream::read(void* buf, uint64_t length,
   if (!status.ok()) {
     VLOG_QUERY << "Stop reading " << filename_ << " (offset=" << offset << ", length="
                << length << "): " << status.GetDetail();
-    // Set the whole data buffer to zero, then orc reader will throw a ParseError
+    // Set the whole data buffer to zero, then orc reader will throw a ParseError.
+    // This is the way we handle cancellation.
     memset(buf, 0, length);
   }
   parent_->state_->io_mgr()->ReturnBuffer(move(io_buffer));
@@ -192,22 +193,24 @@ HdfsOrcScanner::HdfsOrcScanner(HdfsScanNodeBase* scan_node, RuntimeState* state)
       stripe_idx_(-1),
       stripe_rows_read_(0),
       advance_stripe_(true),
+      end_of_stripe_(true),
       row_batches_produced_(0),
       reader_mem_pool_(new OrcMemPool(scan_node->mem_tracker())),
       //scratch_batch_(0, reader_mem_pool_->getMemPool()),
-      metadata_range_(NULL),
+      scratch_batch_tuple_idx_(0),
+      metadata_range_(nullptr),
       assemble_rows_timer_(scan_node_->materialize_tuple_timer()),
-      process_footer_timer_stats_(NULL),
-      num_cols_counter_(NULL),
-      num_stats_filtered_stripes_counter_(NULL),
-      num_stripes_counter_(NULL),
-      num_scanners_with_no_reads_counter_(NULL) {
+      process_footer_timer_stats_(nullptr),
+      num_cols_counter_(nullptr),
+      num_stats_filtered_stripes_counter_(nullptr),
+      num_stripes_counter_(nullptr),
+      num_scanners_with_no_reads_counter_(nullptr) {
   assemble_rows_timer_.Stop();
 }
 
 HdfsOrcScanner::HdfsOrcScanner()
-    : metadata_range_(NULL),
-      assemble_rows_timer_(NULL) {
+    : metadata_range_(nullptr),
+      assemble_rows_timer_(nullptr) {
 }
 
 HdfsOrcScanner::~HdfsOrcScanner() {
@@ -231,7 +234,7 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
 
   for (int i = 0; i < context->filter_ctxs().size(); ++i) {
     const FilterContext* ctx = &context->filter_ctxs()[i];
-    DCHECK(ctx->filter != NULL);
+    DCHECK(ctx->filter != nullptr);
     filter_ctxs_.push_back(ctx);
   }
   filter_stats_.resize(filter_ctxs_.size());
@@ -251,7 +254,7 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
 
   // Release I/O buffers immediately to make sure they are cleaned up
   // in case we return a non-OK status anywhere below.
-  context_->ReleaseCompletedResources(NULL, true);
+  context_->ReleaseCompletedResources(nullptr, true);
   RETURN_IF_ERROR(footer_status);
 
   // Update orc reader options base on the tuple descriptor
@@ -261,7 +264,7 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
 }
 
 void HdfsOrcScanner::UpdateReaderOptions(const TupleDescriptor* tuple_desc,
-                                         OrcMemPool &mem_pool) {
+    OrcMemPool &mem_pool) {
   list<uint64_t> selected_indices;
   int num_columns = 0;
   // TODO validate columns. e.g. scale of decimal type
@@ -275,9 +278,9 @@ void HdfsOrcScanner::UpdateReaderOptions(const TupleDescriptor* tuple_desc,
     int col_idx_in_file = col_idx - scan_node_->num_partition_keys();
     if (col_idx_in_file >= schema_->getSubtypeCount()) {
       // In this case, we are selecting a column that is not in the file.
-      // Update the template tuple to put a NULL in this slot.
+      // Update the template tuple to put a nullptr in this slot.
       Tuple** template_tuple = &template_tuple_map_[tuple_desc];
-      if (*template_tuple == NULL) {
+      if (*template_tuple == nullptr) {
         *template_tuple =
             Tuple::Create(tuple_desc->byte_size(), template_tuple_pool_.get());
       }
@@ -320,7 +323,7 @@ Status HdfsOrcScanner::ProcessSplit() {
     RETURN_IF_ERROR(status);
     ++row_batches_produced_;
     if ((row_batches_produced_ & (BATCHES_PER_FILTER_SELECTIVITY_CHECK - 1)) == 0) {
-        CheckFiltersEffectiveness();
+      CheckFiltersEffectiveness();
     }
   } while (!eos_ && !scan_node_->ReachedLimit());
   return Status::OK();
@@ -348,7 +351,17 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
     return Status::OK();
   }
 
-  while (advance_stripe_) {
+  // Transfer remaining tuples from the scratch batch.
+  if (ScratchBatchNotEmpty()) {
+    assemble_rows_timer_.Start();
+    int num_row_to_commit = TransferScratchTuples(row_batch);
+    assemble_rows_timer_.Stop();
+    RETURN_IF_ERROR(CommitRows(row_batch, num_row_to_commit));
+    if (row_batch->AtCapacity()) return Status::OK();
+    DCHECK_EQ(scratch_batch_tuple_idx_, scratch_batch_->numElements);
+  }
+
+  while (advance_stripe_ || end_of_stripe_) {
     // Attach any resources and clear the streams before starting a new row group. These
     // streams could either be just the footer stream or streams for the previous stripe.
     reader_mem_pool_->getMemPool()->Clear();
@@ -374,18 +387,8 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
     DCHECK(parse_status_.ok());
     return Status::OK();
   }
-
-  const orc::proto::StripeInformation &stripe = footer_.stripes(stripe_idx_);
-  google::uint64 stripe_len = stripe.indexlength() + stripe.datalength() +
-      stripe.footerlength();    // TODO check this again
-  orc_reader_options_.range(stripe.offset(), stripe_len);
-
-  unique_ptr<orc::InputStream> input_stream(new ScanRangeInputStream(this));
-  unique_ptr<orc::Reader> reader = orc::createReader(move(input_stream),
-      orc_reader_options_);
-
   assemble_rows_timer_.Start();
-  Status status = AssembleRows(scan_node_->tuple_desc(), row_batch, std::move(reader));
+  Status status = AssembleRows(row_batch);
   assemble_rows_timer_.Stop();
   RETURN_IF_ERROR(status);
   if (!parse_status_.ok()) {
@@ -408,6 +411,11 @@ void HdfsOrcScanner::CheckFiltersEffectiveness() {
   }
 }
 
+inline bool HdfsOrcScanner::ScratchBatchNotEmpty() {
+  return scratch_batch_ != nullptr
+      && scratch_batch_tuple_idx_ < scratch_batch_->numElements;
+}
+
 inline static bool CheckStripeOverlapsSplit(int64_t stripe_start, int64_t stripe_end,
     int64_t split_start, int64_t split_end) {
   return (split_start >= stripe_start && split_start < stripe_end) ||
@@ -427,11 +435,9 @@ Status HdfsOrcScanner::NextStripe() {
   advance_stripe_ = false;
   stripe_rows_read_ = 0;
 
-  // Loop until we have found a non-empty row group, and successfully initialized and
-  // seeded the column readers. Return a non-OK status from within loop only if the error
-  // is non-recoverable, otherwise log the error and continue with the next row group.
+  // Loop until we have found a non-empty stripe.
   while (true) {
-    // Reset the parse status for the next row group.
+    // Reset the parse status for the next stripe.
     parse_status_ = Status::OK();
 
     ++stripe_idx_;
@@ -464,11 +470,16 @@ Status HdfsOrcScanner::NextStripe() {
           stripe_offset + stripe_len, split_offset, split_offset + split_length);
       continue;
     }
+
+    // TODO: check if this stripe can be skipped by stats.
+
+    COUNTER_ADD(num_stripes_counter_, 1);
+    orc_reader_options_.range(stripe.offset(), stripe_len);
+    unique_ptr<orc::InputStream> input_stream(new ScanRangeInputStream(this));
+    reader_ = orc::createReader(move(input_stream), orc_reader_options_);
+    end_of_stripe_ = false;
+    break;
   }
-
-  COUNTER_ADD(num_stripes_counter_, 1);
-
-  // TODO: check if this stripe can be skipped by stats.
 
   DCHECK(parse_status_.ok());
   return Status::OK();
@@ -511,19 +522,19 @@ Status HdfsOrcScanner::ProcessFileTail() {
   // In that case, we stitch the data in this buffer.
   ScopedBuffer footer_buffer(scan_node_->mem_tracker());
 
-  DCHECK(metadata_range_ != NULL);
+  DCHECK(metadata_range_ != nullptr);
   VLOG_FILE << "parsing tail of " << filename();
   if (UNLIKELY(tail_size > split_len)) {
     // In this case, the footer is bigger than our guess meaning there are
     // not enough bytes in the footer range from IssueInitialRanges().
     // We'll just issue more ranges to the IoMgr that is the actual footer.
     int64_t footer_start = file_len - tail_size;
-    int64_t footer_bytes_to_read = footer_size;
     if (footer_start < 0) {
       return Status(Substitute("File $0 is invalid. Invalid footer size in postscript:"
           "$1 bytes. Postscript size: $2 bytes. File size: $3 bytes.", filename(),
           footer_size, postscript_len, file_len));
     }
+
     if (!footer_buffer.TryAllocate(footer_size)) {
       string details = Substitute("Could not allocate buffer of $0 bytes for ORC footer "
           "for file '$1'.", footer_size, filename());
@@ -622,11 +633,14 @@ Status HdfsOrcScanner::ParsePostscript(const uint8_t* buffer, uint64_t len,
 }
 
 Status HdfsOrcScanner::ParseFooter(const uint8_t* footer_ptr, uint64_t footer_size) {
+  // We don't known the decompressed footer length until we decompress it. Thus we use
+  // vector here.
   vector<uint8_t> decompressed_footer_buffer;
 
   bool isCompressed = (postscript_.has_compression() &&
       postscript_.compression() != orc::proto::CompressionKind::NONE);
   if (isCompressed) {
+    // More about the compression: https://orc.apache.org/docs/compression.html
     RETURN_IF_ERROR(Codec::CreateDecompressor(nullptr, false,
         TranslateCompressionKind(postscript_.compression()), &decompressor_));
     uint64_t compression_block_size = postscript_.has_compressionblocksize() ?
@@ -695,64 +709,94 @@ Status HdfsOrcScanner::ValidateFileMetadata() {
   return Status::OK();
 }
 
-Status HdfsOrcScanner::AssembleRows(const TupleDescriptor* tuple_desc, RowBatch* row_batch,
-    unique_ptr<orc::Reader> reader) {
-  Tuple* template_tuple = template_tuple_map_[tuple_desc];
-  Tuple* tuple;
-  TupleRow* row = NULL;
-
-  ScalarExprEvaluator* const* conjunct_evals = conjunct_evals_->data();
-  const int num_conjuncts = conjunct_evals_->size();
-
-  const orc::Type* root_type = &reader->getSelectedType();
-  DCHECK_EQ(root_type->getKind(), orc::TypeKind::STRUCT);
-
+Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
   bool continue_execution = !scan_node_->ReachedLimit() && !context_->cancelled();
-  int row_idx = 0;
-  scratch_batch_ = move(reader->createRowBatch(row_batch->capacity()));
+  scratch_batch_tuple_idx_ = 0;
+  scratch_batch_ = move(reader_->createRowBatch(row_batch->capacity()));
   DCHECK_EQ(scratch_batch_->numElements, 0);
+
+  int64_t num_rows_read = 0;
   while (continue_execution) {  // one ORC scratch batch (ColumnVectorBatch) in a round
-    if (row_idx == scratch_batch_->numElements) {
+    if (scratch_batch_tuple_idx_ == scratch_batch_->numElements) {
       try {
-        if (!reader->next(*scratch_batch_)) break; // no more data to process
+        if (!reader_->next(*scratch_batch_)) {
+          end_of_stripe_ = true;
+          break; // no more data to process
+        }
       } catch (std::exception& e) {
-        VLOG_QUERY << "Encounter parse error: " << e.what() << ". Maybe due to cancellation";
-        return Status::OK();    // TODO: OK?
+        VLOG_QUERY << "Encounter parse error: " << e.what()
+                   << ". Maybe due to cancellation";
+        eos_ = true;
+        parse_status_ = Status(Substitute(
+            "Encounter parse error: $1. Maybe due to cancellation.", e.what()));
+        return parse_status_;    // TODO: OK?
       }
       if (scratch_batch_->numElements == 0) {
         RETURN_IF_ERROR(CommitRows(row_batch, 0)); // TODO: check this
-        eos_ = true;
+        end_of_stripe_ = true;
         return Status::OK();
       }
-      COUNTER_ADD(scan_node_->rows_read_counter(), scratch_batch_->numElements);
-      row_idx = 0;
+      num_rows_read += scratch_batch_->numElements;
+      scratch_batch_tuple_idx_ = 0;
     }
 
-    int num_to_commit = 0;
-    DCHECK_LT(row_batch->num_rows(), row_batch->capacity());
-    row = row_batch->GetRow(row_batch->num_rows());
-    tuple = row->GetTuple(0);
-    while (!row_batch->AtCapacity() && row_idx < scratch_batch_->numElements) {
-      InitTupleFromTemplate(template_tuple, tuple, tuple_desc->byte_size());
-      ReadRow(*scratch_batch_, row_idx++, root_type, tuple, row_batch);
-      row->SetTuple(scan_node_->tuple_idx(), tuple);
-      if (!EvalRuntimeFilters(row)) continue;
-      if (ExecNode::EvalConjuncts(conjunct_evals, num_conjuncts, row)) {
-        row = next_row(row);
-        tuple = next_tuple(tuple_desc->byte_size(), tuple);
-        ++num_to_commit;
-      }
-    }
+    int num_to_commit = TransferScratchTuples(row_batch);
     RETURN_IF_ERROR(CommitRows(row_batch, num_to_commit)); // TODO: check this
-    if (row_batch->AtCapacity()) return Status::OK();
+    if (row_batch->AtCapacity()) break;
     continue_execution &= !scan_node_->ReachedLimit() && !context_->cancelled();
   }
-  // TODO validate end of stripe?
+  stripe_rows_read_ += num_rows_read;
+  COUNTER_ADD(scan_node_->rows_read_counter(), num_rows_read);
   return Status::OK();
 }
 
+int HdfsOrcScanner::TransferScratchTuples(RowBatch* dst_batch) {
+  const TupleDescriptor* tuple_desc = scan_node_->tuple_desc();
+  Tuple* template_tuple = template_tuple_map_[tuple_desc];
+
+  ScalarExprEvaluator* const* conjunct_evals = conjunct_evals_->data();
+  int num_conjuncts = conjunct_evals_->size();
+
+  const orc::Type* root_type = &reader_->getSelectedType();
+  DCHECK_EQ(root_type->getKind(), orc::TypeKind::STRUCT);
+
+  DCHECK_LT(dst_batch->num_rows(), dst_batch->capacity());
+  TupleRow* row = dst_batch->GetRow(dst_batch->num_rows());
+  Tuple* tuple = row->GetTuple(0);
+  int num_to_commit = 0;
+  while (!dst_batch->AtCapacity() && ScratchBatchNotEmpty()) {
+    InitTupleFromTemplate(template_tuple, tuple, tuple_desc->byte_size());
+    ReadRow(*scratch_batch_, scratch_batch_tuple_idx_++, root_type, tuple, dst_batch);
+    row->SetTuple(scan_node_->tuple_idx(), tuple);
+    if (!EvalRuntimeFilters(row)) continue;
+    if (ExecNode::EvalConjuncts(conjunct_evals, num_conjuncts, row)) {
+      row = next_row(row);
+      tuple = next_tuple(tuple_desc->byte_size(), tuple);
+      ++num_to_commit;
+    }
+  }
+  return num_to_commit;
+}
+
 Status HdfsOrcScanner::CommitRows(RowBatch* dst_batch, int num_rows) {
-  // TODO
+  DCHECK(dst_batch != nullptr);
+  dst_batch->CommitRows(num_rows);
+
+  // We need to pass the row batch to the scan node if there is too much memory attached,
+  // which can happen if the query is very selective. We need to release memory even
+  // if no rows passed predicates. We should only do this when all rows have been copied
+  // from the scratch batch, since those rows may reference completed I/O buffers in
+  // 'context_'.
+  if (scratch_batch_tuple_idx_ == scratch_batch_->numElements
+      && (dst_batch->AtCapacity() || context_->num_completed_io_buffers() > 0)) {
+    context_->ReleaseCompletedResources(dst_batch, /* done */ false);
+  }
+  if (context_->cancelled()) return Status::CANCELLED;
+  // Check for UDF errors.
+  RETURN_IF_ERROR(state_->GetQueryStatus());
+  // Clear expr result allocations for this thread to avoid accumulating too much
+  // memory from evaluating the scanner conjuncts.
+  context_->expr_results_pool()->Clear();
   return Status::OK();
 }
 
@@ -786,7 +830,7 @@ inline void HdfsOrcScanner::ReadRow(const orc::ColumnVectorBatch &batch, int row
     orc::ColumnVectorBatch* col_batch = struct_batch.fields[c];
     const orc::Type* col_type = orc_type->getSubtype(c);
     const SlotDescriptor* slot_desc = col_id_slot_map_[col_type->getColumnId()];
-    if (slot_desc == NULL) {
+    if (slot_desc == nullptr) {
       VLOG_QUERY << "slot not found for column " << c << ": " << col_type->toString();
       continue;
     }
