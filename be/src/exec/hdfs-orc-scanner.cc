@@ -794,8 +794,8 @@ Status HdfsOrcScanner::CommitRows(RowBatch* dst_batch, int num_rows) {
   // if no rows passed predicates. We should only do this when all rows have been copied
   // from the scratch batch, since those rows may reference completed I/O buffers in
   // 'context_'.
-  if (scratch_batch_tuple_idx_ == scratch_batch_->numElements
-      && (dst_batch->AtCapacity() || context_->num_completed_io_buffers() > 0)) {
+  if ((dst_batch->AtCapacity() || context_->num_completed_io_buffers() > 0)
+      && !ScratchBatchNotEmpty()) {
     context_->ReleaseCompletedResources(dst_batch, /* done */ false);
   }
   if (context_->cancelled()) return Status::CANCELLED;
