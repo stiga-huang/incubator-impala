@@ -51,7 +51,7 @@ class HdfsOrcScanner : public HdfsScanner {
   class ScanRangeInputStream : public orc::InputStream {
    public:
     ScanRangeInputStream(HdfsOrcScanner *scanner) {
-      this->parent_ = scanner;
+      this->scanner_ = scanner;
       if (scanner != NULL) {  // NULL for unit test
         this->filename_ = scanner->filename();
         this->file_desc_ = scanner->scan_node_->GetFileDesc(
@@ -64,7 +64,7 @@ class HdfsOrcScanner : public HdfsScanner {
     }
 
     uint64_t getNaturalReadSize() const {
-      return parent_->state_->io_mgr()->max_read_buffer_size();
+      return scanner_->state_->io_mgr()->max_read_buffer_size();
     }
 
     void read(void *buf, uint64_t length, uint64_t offset);
@@ -74,7 +74,7 @@ class HdfsOrcScanner : public HdfsScanner {
     }
 
   private:
-    HdfsOrcScanner *parent_;
+    HdfsOrcScanner *scanner_;
     HdfsFileDesc *file_desc_;
     std::string filename_;
   };

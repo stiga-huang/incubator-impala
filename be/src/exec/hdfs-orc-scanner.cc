@@ -88,17 +88,17 @@ Status HdfsOrcScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
 
       DCHECK_LE(split->offset() + split->len(), files[i]->file_length);
       // If there are no materialized slots (such as count(*) over the table), we can
-      // get the result with the file metadata alone and don't need to read any row
-      // groups. We only want a single node to process the file footer in this case,
-      // which is the node with the footer split.  If it's not a count(*), we create a
-      // footer range for the split always.
+      // get the result with the file metadata alone and don't need to read any stripes
+      // We only want a single node to process the file footer in this case, which is
+      // the node with the footer split.  If it's not a count(*), we create a footer
+      // range for the split always.
       if (!scan_node->IsZeroSlotTableScan() || footer_split == split) {
         ScanRangeMetadata* split_metadata =
             static_cast<ScanRangeMetadata*>(split->meta_data());
         // Each split is processed by first issuing a scan range for the file footer, which
-        // is done here, followed by scan ranges for the columns of each row group within
-        // the actual split (in InitColumns()). The original split is stored in the
-        // metadata associated with the footer range.
+        // is done here, followed by scan ranges for the columns of each stripe within the
+        // actual split (in InitColumns()). The original split is stored in the metadata
+        // associated with the footer range.
         DiskIoMgr::ScanRange* footer_range;
         if (footer_split != nullptr) {
           footer_range = scan_node->AllocateScanRange(files[i]->fs,
@@ -157,16 +157,16 @@ void HdfsOrcScanner::OrcMemPool::free(char* p) {
 
 void HdfsOrcScanner::ScanRangeInputStream::read(void* buf, uint64_t length,
     uint64_t offset) {
-  const DiskIoMgr::ScanRange* metadata_range = parent_->metadata_range_;
+  const DiskIoMgr::ScanRange* metadata_range = scanner_->metadata_range_;
   const DiskIoMgr::ScanRange* split_range =
       reinterpret_cast<ScanRangeMetadata*>(metadata_range->meta_data())->original_split;
-  const char* filename = parent_->filename();
+  const char* filename = scanner_->filename();
   bool expected_local = split_range->expected_local()
                    && offset >= split_range->offset()
                    && offset + length <= split_range->offset() + split_range->len();
-  int64_t partition_id = parent_->context_->partition_descriptor()->id();
+  int64_t partition_id = scanner_->context_->partition_descriptor()->id();
 
-  DiskIoMgr::ScanRange* range = parent_->scan_node_->AllocateScanRange(
+  DiskIoMgr::ScanRange* range = scanner_->scan_node_->AllocateScanRange(
       metadata_range->fs(), filename, length, offset, partition_id,
       split_range->disk_id(), expected_local,
       DiskIoMgr::BufferOpts::ReadInto(reinterpret_cast<uint8_t*>(buf), length));
@@ -174,9 +174,9 @@ void HdfsOrcScanner::ScanRangeInputStream::read(void* buf, uint64_t length,
   unique_ptr<DiskIoMgr::BufferDescriptor> io_buffer;
   Status status;
   {
-    SCOPED_TIMER(parent_->state_->total_storage_wait_timer());
-    status = parent_->state_->io_mgr()->Read(
-        parent_->scan_node_->reader_context(), range, &io_buffer);
+    SCOPED_TIMER(scanner_->state_->total_storage_wait_timer());
+    status = scanner_->state_->io_mgr()->Read(
+        scanner_->scan_node_->reader_context(), range, &io_buffer);
   }
   if (!status.ok()) {
     VLOG_QUERY << "Stop reading " << filename_ << " (offset=" << offset << ", length="
@@ -185,7 +185,7 @@ void HdfsOrcScanner::ScanRangeInputStream::read(void* buf, uint64_t length,
     // This is the way we handle cancellation.
     memset(buf, 0, length);
   }
-  parent_->state_->io_mgr()->ReturnBuffer(move(io_buffer));
+  scanner_->state_->io_mgr()->ReturnBuffer(move(io_buffer));
 }
 
 HdfsOrcScanner::HdfsOrcScanner(HdfsScanNodeBase* scan_node, RuntimeState* state)
@@ -362,9 +362,10 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
   }
 
   while (advance_stripe_ || end_of_stripe_) {
-    // Attach any resources and clear the streams before starting a new row group. These
-    // streams could either be just the footer stream or streams for the previous stripe.
+    // Clear resources of orc reader before starting a new stripe
     reader_mem_pool_->getMemPool()->Clear();
+    // Attach any resources and clear the streams before starting a new stripe. These
+    // streams could either be just the footer stream or streams for the previous stripe.
     context_->ReleaseCompletedResources(row_batch, /* done */ true);
     // Commit the rows to flush the row batch from the previous row group
     CommitRows(row_batch, 0);  // TODO: check this
@@ -711,6 +712,8 @@ Status HdfsOrcScanner::ValidateFileMetadata() {
 
 Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
   bool continue_execution = !scan_node_->ReachedLimit() && !context_->cancelled();
+  if (!continue_execution)  return Status::OK();
+
   scratch_batch_tuple_idx_ = 0;
   scratch_batch_ = move(reader_->createRowBatch(row_batch->capacity()));
   DCHECK_EQ(scratch_batch_->numElements, 0);
@@ -724,15 +727,19 @@ Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
           break; // no more data to process
         }
       } catch (std::exception& e) {
-        VLOG_QUERY << "Encounter parse error: " << e.what()
-                   << ". Maybe due to cancellation";
+        if (context_->cancelled()) {
+          VLOG_QUERY << "Encounter parse error: " << e.what()
+                     << " which is due to cancellation";
+          parse_status_ = Status::CANCELLED;
+        } else {
+          VLOG_QUERY << "Encounter parse error: " << e.what();
+          parse_status_ = Status(Substitute("Encounter parse error: $1.", e.what()));
+        }
         eos_ = true;
-        parse_status_ = Status(Substitute(
-            "Encounter parse error: $1. Maybe due to cancellation.", e.what()));
         return parse_status_;    // TODO: OK?
       }
       if (scratch_batch_->numElements == 0) {
-        RETURN_IF_ERROR(CommitRows(row_batch, 0)); // TODO: check this
+        RETURN_IF_ERROR(CommitRows(row_batch, 0));
         end_of_stripe_ = true;
         return Status::OK();
       }
@@ -741,7 +748,7 @@ Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
     }
 
     int num_to_commit = TransferScratchTuples(row_batch);
-    RETURN_IF_ERROR(CommitRows(row_batch, num_to_commit)); // TODO: check this
+    RETURN_IF_ERROR(CommitRows(row_batch, num_to_commit));
     if (row_batch->AtCapacity()) break;
     continue_execution &= !scan_node_->ReachedLimit() && !context_->cancelled();
   }

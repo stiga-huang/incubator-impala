@@ -262,7 +262,7 @@ class HdfsOrcScannerTest : public testing::Test {
 
     uint64_t footer_len = scanner_.getPostscript().footerlength();
     uint8_t *footer_ptr = data + data_len - 1 - postscript_len - footer_len;
-    status = scanner_.ParseFooter(footer_ptr, footer_len, true);
+    status = scanner_.ParseFooter(footer_ptr, footer_len);
     EXPECT_TRUE(status.ok()) << "Failed to parse footer: " << status.GetDetail();
   }
 
