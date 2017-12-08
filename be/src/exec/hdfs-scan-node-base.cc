@@ -456,7 +456,7 @@ Status HdfsScanNodeBase::IssueInitialScanRanges(RuntimeState* state) {
   // Issue initial ranges for all file types.
   RETURN_IF_ERROR(HdfsParquetScanner::IssueInitialRanges(this,
       matching_per_type_files[THdfsFileFormat::PARQUET]));
-  RETURN_IF_ERROR(BaseSequenceScanner::IssueInitialRanges(this,
+  RETURN_IF_ERROR(HdfsOrcScanner::IssueInitialRanges(this,
       matching_per_type_files[THdfsFileFormat::ORC]));
   RETURN_IF_ERROR(HdfsTextScanner::IssueInitialRanges(this,
       matching_per_type_files[THdfsFileFormat::TEXT]));

@@ -351,6 +351,12 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
     return Status::OK();
   }
 
+  int64_t tuple_buffer_size;
+  RETURN_IF_ERROR(
+      row_batch->ResizeAndAllocateTupleBuffer(state_, &tuple_buffer_size, &tuple_mem_));
+  tuple_ = reinterpret_cast<Tuple*>(tuple_mem_);
+  DCHECK_GT(row_batch->capacity(), 0);
+
   // Transfer remaining tuples from the scratch batch.
   if (ScratchBatchNotEmpty()) {
     assemble_rows_timer_.Start();
@@ -769,10 +775,10 @@ int HdfsOrcScanner::TransferScratchTuples(RowBatch* dst_batch) {
 
   DCHECK_LT(dst_batch->num_rows(), dst_batch->capacity());
   TupleRow* row = dst_batch->GetRow(dst_batch->num_rows());
-  Tuple* tuple = row->GetTuple(0);
+  Tuple* tuple = tuple_;
   int num_to_commit = 0;
   while (!dst_batch->AtCapacity() && ScratchBatchNotEmpty()) {
-    InitTupleFromTemplate(template_tuple, tuple, tuple_desc->byte_size());
+    InitTuple(tuple_desc, template_tuple, tuple);
     ReadRow(*scratch_batch_, scratch_batch_tuple_idx_++, root_type, tuple, dst_batch);
     row->SetTuple(scan_node_->tuple_idx(), tuple);
     if (!EvalRuntimeFilters(row)) continue;
@@ -788,6 +794,8 @@ int HdfsOrcScanner::TransferScratchTuples(RowBatch* dst_batch) {
 Status HdfsOrcScanner::CommitRows(RowBatch* dst_batch, int num_rows) {
   DCHECK(dst_batch != nullptr);
   dst_batch->CommitRows(num_rows);
+  tuple_mem_ += static_cast<int64_t>(scan_node_->tuple_desc()->byte_size()) * num_rows;
+  tuple_ = reinterpret_cast<Tuple*>(tuple_mem_);
 
   // We need to pass the row batch to the scan node if there is too much memory attached,
   // which can happen if the query is very selective. We need to release memory even
