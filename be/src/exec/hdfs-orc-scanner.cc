@@ -313,9 +313,8 @@ Status HdfsOrcScanner::ProcessSplit() {
   DCHECK(scan_node_->HasRowBatchQueue());
   HdfsScanNode* scan_node = static_cast<HdfsScanNode*>(scan_node_);
   do {
-    unique_ptr<RowBatch> batch = unique_ptr<RowBatch>(
-        new RowBatch(scan_node_->row_desc(), state_->batch_size(),
-        scan_node_->mem_tracker()));
+    unique_ptr<RowBatch> batch = std::make_unique<RowBatch>(scan_node_->row_desc(),
+        state_->batch_size(), scan_node_->mem_tracker());
     Status status = GetNextInternal(batch.get());
     // Always add batch to the queue because it may contain data referenced by previously
     // appended batches.
@@ -979,16 +978,22 @@ inline void HdfsOrcScanner::ReadRow(const orc::ColumnVectorBatch &batch, int row
 void HdfsOrcScanner::Close(RowBatch* row_batch) {
   DCHECK(!is_closed_);
   if (row_batch != nullptr) {
-    // TODO:
-    // FlushRowGroupResources(row_batch);
-    // row_batch->tuple_data_pool()->AcquireData(template_tuple_pool_.get(), false);
+    context_->ReleaseCompletedResources(row_batch, /* done */ true);
+    row_batch->tuple_data_pool()->AcquireData(template_tuple_pool_.get(), false);
     if (scan_node_->HasRowBatchQueue()) {
       static_cast<HdfsScanNode*>(scan_node_)->AddMaterializedRowBatch(
           unique_ptr<RowBatch>(row_batch));
     }
+  } else {
+    template_tuple_pool_->FreeAll();
+    context_->ReleaseCompletedResources(nullptr, true);
   }
   reader_mem_pool_->getMemPool()->FreeAll();
-  // AddFinalRowBatch();
+
+  // Verify all resources (if any) have been transferred.
+  DCHECK_EQ(template_tuple_pool_->total_allocated_bytes(), 0);
+  DCHECK_EQ(reader_mem_pool_->getMemPool()->total_allocated_bytes(), 0);
+  DCHECK_EQ(context_->num_completed_io_buffers(), 0);
 
   assemble_rows_timer_.Stop();
   assemble_rows_timer_.ReleaseCounter();
