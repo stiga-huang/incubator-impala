@@ -26,6 +26,7 @@
 #include "util/decompress.h"
 
 
+using namespace impala::io;
 namespace impala {
 
 uint8_t empty_data_one_col_orc[] = {
@@ -268,7 +269,7 @@ class HdfsOrcScannerTest : public testing::Test {
 
  protected:
   HdfsOrcScanner scanner_;
-  DiskIoMgr::ScanRange range_;  // fake range
+  ScanRange range_;  // fake range
 };
 
 TEST_F(HdfsOrcScannerTest, BasicPostscriptTest) {

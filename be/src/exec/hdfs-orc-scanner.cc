@@ -53,6 +53,7 @@ using boost::algorithm::is_any_of;
 using boost::algorithm::split;
 using boost::algorithm::token_compress_on;
 using namespace impala;
+using namespace impala::io;
 using namespace strings;
 
 DEFINE_double(orc_min_filter_reject_ratio, 0.1, "(Advanced) If the percentage of "
@@ -68,7 +69,7 @@ const int64_t HdfsOrcScanner::FOOTER_SIZE = 100 * 1024;
 
 Status HdfsOrcScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
     const std::vector<HdfsFileDesc*> &files) {
-  vector<DiskIoMgr::ScanRange*> footer_ranges;
+  vector<ScanRange*> footer_ranges;
   for (int i = 0; i < files.size(); ++i) {
     // If the file size is less than 10 bytes, it is an invalid ORC file.
     if (files[i]->file_length < 10) {
@@ -81,10 +82,10 @@ Status HdfsOrcScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
     DCHECK_GE(footer_start, 0);
 
     // Try to find the split with the footer.
-    DiskIoMgr::ScanRange* footer_split = FindFooterSplit(files[i]);
+    ScanRange* footer_split = FindFooterSplit(files[i]);
 
     for (int j = 0; j < files[i]->splits.size(); ++j) {
-      DiskIoMgr::ScanRange* split = files[i]->splits[j];
+      ScanRange* split = files[i]->splits[j];
 
       DCHECK_LE(split->offset() + split->len(), files[i]->file_length);
       // If there are no materialized slots (such as count(*) over the table), we can
@@ -99,19 +100,19 @@ Status HdfsOrcScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
         // is done here, followed by scan ranges for the columns of each stripe within the
         // actual split (in InitColumns()). The original split is stored in the metadata
         // associated with the footer range.
-        DiskIoMgr::ScanRange* footer_range;
+        ScanRange* footer_range;
         if (footer_split != nullptr) {
           footer_range = scan_node->AllocateScanRange(files[i]->fs,
               files[i]->filename.c_str(), footer_size, footer_start,
               split_metadata->partition_id, footer_split->disk_id(),
               footer_split->expected_local(),
-              DiskIoMgr::BufferOpts(footer_split->try_cache(), files[i]->mtime), split);
+              BufferOpts(footer_split->try_cache(), files[i]->mtime), split);
         } else {
           // If we did not find the last split, we know it is going to be a remote read.
           footer_range =
               scan_node->AllocateScanRange(files[i]->fs, files[i]->filename.c_str(),
                   footer_size, footer_start, split_metadata->partition_id, -1, false,
-                  DiskIoMgr::BufferOpts::Uncached(), split);
+                  BufferOpts::Uncached(), split);
         }
 
         footer_ranges.push_back(footer_range);
@@ -126,10 +127,10 @@ Status HdfsOrcScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
   return Status::OK();
 }
 
-DiskIoMgr::ScanRange* HdfsOrcScanner::FindFooterSplit(HdfsFileDesc* file) {
+ScanRange* HdfsOrcScanner::FindFooterSplit(HdfsFileDesc* file) {
   DCHECK(file != nullptr);
   for (int i = 0; i < file->splits.size(); ++i) {
-    DiskIoMgr::ScanRange* split = file->splits[i];
+    ScanRange* split = file->splits[i];
     if (split->offset() + split->len() == file->file_length) return split;
   }
   return nullptr;
@@ -157,8 +158,8 @@ void HdfsOrcScanner::OrcMemPool::free(char* p) {
 
 void HdfsOrcScanner::ScanRangeInputStream::read(void* buf, uint64_t length,
     uint64_t offset) {
-  const DiskIoMgr::ScanRange* metadata_range = scanner_->metadata_range_;
-  const DiskIoMgr::ScanRange* split_range =
+  const ScanRange* metadata_range = scanner_->metadata_range_;
+  const ScanRange* split_range =
       reinterpret_cast<ScanRangeMetadata*>(metadata_range->meta_data())->original_split;
   const char* filename = scanner_->filename();
   bool expected_local = split_range->expected_local()
@@ -166,12 +167,12 @@ void HdfsOrcScanner::ScanRangeInputStream::read(void* buf, uint64_t length,
                    && offset + length <= split_range->offset() + split_range->len();
   int64_t partition_id = scanner_->context_->partition_descriptor()->id();
 
-  DiskIoMgr::ScanRange* range = scanner_->scan_node_->AllocateScanRange(
+  ScanRange* range = scanner_->scan_node_->AllocateScanRange(
       metadata_range->fs(), filename, length, offset, partition_id,
       split_range->disk_id(), expected_local,
-      DiskIoMgr::BufferOpts::ReadInto(reinterpret_cast<uint8_t*>(buf), length));
+      BufferOpts::ReadInto(reinterpret_cast<uint8_t*>(buf), length));
 
-  unique_ptr<DiskIoMgr::BufferDescriptor> io_buffer;
+  unique_ptr<BufferDescriptor> io_buffer;
   Status status;
   {
     SCOPED_TIMER(scanner_->state_->total_storage_wait_timer());
@@ -430,7 +431,7 @@ inline static bool CheckStripeOverlapsSplit(int64_t stripe_start, int64_t stripe
 }
 
 Status HdfsOrcScanner::NextStripe() {
-  const DiskIoMgr::ScanRange* split_range = static_cast<ScanRangeMetadata*>(
+  const ScanRange* split_range = static_cast<ScanRangeMetadata*>(
       metadata_range_->meta_data())->original_split;
   int64_t split_offset = split_range->offset();
   int64_t split_length = split_range->len();
@@ -550,12 +551,12 @@ Status HdfsOrcScanner::ProcessFileTail() {
     DiskIoMgr* io_mgr = scan_node_->runtime_state()->io_mgr();
     int64_t partition_id = context_->partition_descriptor()->id();
 
-    DiskIoMgr::ScanRange* footer_range = scan_node_->AllocateScanRange(
+    ScanRange* footer_range = scan_node_->AllocateScanRange(
       metadata_range_->fs(), filename(), footer_size, footer_start, partition_id,
       metadata_range_->disk_id(), metadata_range_->expected_local(),
-      DiskIoMgr::BufferOpts::ReadInto(footer_buffer.buffer(), footer_size));
+      BufferOpts::ReadInto(footer_buffer.buffer(), footer_size));
 
-    unique_ptr<DiskIoMgr::BufferDescriptor> io_buffer;
+    unique_ptr<BufferDescriptor> io_buffer;
     RETURN_IF_ERROR(
         io_mgr->Read(scan_node_->reader_context(), footer_range, &io_buffer));
     DCHECK_EQ(io_buffer->buffer(), footer_buffer.buffer());
@@ -826,7 +827,7 @@ bool HdfsOrcScanner::EvalRuntimeFilter(int i, TupleRow* row) {
   LocalFilterStats* stats = &filter_stats_[i];
   const FilterContext* ctx = filter_ctxs_[i];
   ++stats->total_possible;
-  if (stats->enabled && ctx->filter->HasBloomFilter()) {
+  if (stats->enabled && ctx->filter->HasFilter()) {
     ++stats->considered;
     if (!ctx->Eval(row)) {
       ++stats->rejected;

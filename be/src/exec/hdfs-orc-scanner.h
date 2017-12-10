@@ -181,7 +181,7 @@ class HdfsOrcScanner : public HdfsScanner {
   std::map<int, const SlotDescriptor*> col_id_slot_map_;
 
   /// Scan range for the metadata.
-  const DiskIoMgr::ScanRange *metadata_range_;
+  const io::ScanRange *metadata_range_;
 
   /// Timer for materializing rows.  This ignores time getting the next buffer.
   ScopedTimer<MonotonicStopWatch> assemble_rows_timer_;
@@ -263,7 +263,7 @@ class HdfsOrcScanner : public HdfsScanner {
 
   /// Find and return the last split in the file if it is assigned to this scan node.
   /// Returns NULL otherwise.
-  static DiskIoMgr::ScanRange *FindFooterSplit(HdfsFileDesc *file);
+  static io::ScanRange *FindFooterSplit(HdfsFileDesc *file);
 
   /// Process the file footer and parse file_metadata_.  This should be called with the
   /// last FOOTER_SIZE bytes in context_.
