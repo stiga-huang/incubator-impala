@@ -186,7 +186,7 @@ void HdfsOrcScanner::ScanRangeInputStream::read(void* buf, uint64_t length,
     // This is the way we handle cancellation.
     memset(buf, 0, length);
   }
-  scanner_->state_->io_mgr()->ReturnBuffer(move(io_buffer));
+  if (io_buffer != nullptr) scanner_->state_->io_mgr()->ReturnBuffer(move(io_buffer));
 }
 
 HdfsOrcScanner::HdfsOrcScanner(HdfsScanNodeBase* scan_node, RuntimeState* state)
