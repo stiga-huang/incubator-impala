@@ -940,10 +940,12 @@ inline void HdfsOrcScanner::ReadRow(const orc::ColumnVectorBatch &batch, int row
               reinterpret_cast<Decimal8Value*>(slot_val_ptr)->value() = orc_val.getLowBits();
               break;
             case 16:
-              int128_t &val = reinterpret_cast<Decimal16Value*>(slot_val_ptr)->value();
-              val = orc_val.getHighBits();
+              int128_t val = orc_val.getHighBits();
               val <<= 64;
               val |= orc_val.getLowBits();
+              // Use memcpy to avoid gcc generating unaligned instructions like movaps for int128_t.
+              // They will raise SegmentFault when addresses are not aligned to 16 bytes.
+              memcpy(slot_val_ptr, &val, sizeof(int128_t));
               break;
           }
         } else {
