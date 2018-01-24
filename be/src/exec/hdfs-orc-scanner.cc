@@ -261,6 +261,9 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
   // Update orc reader options base on the tuple descriptor
   UpdateReaderOptions(scan_node_->tuple_desc(), *reader_mem_pool_);
 
+  // Set top-level template tuple.
+  template_tuple_ = template_tuple_map_[scan_node_->tuple_desc()];
+
   return Status::OK();
 }
 
