@@ -38,14 +38,16 @@ class HdfsOrcScanner : public HdfsScanner {
  public:
   class OrcMemPool : public orc::MemoryPool {
    public:
-    OrcMemPool(impala::MemTracker *mem_tracker);
+    OrcMemPool(MemTracker *mem_tracker);
     virtual ~OrcMemPool();
 
     char* malloc(uint64_t size) override;
     void free(char* p) override;
-    MemPool* getMemPool() { return pool_; }
+
+    void Clear();
    private:
-    MemPool *pool_;
+    boost::scoped_ptr<MemTracker> mem_tracker_;
+    boost::unordered_map<char*, uint64_t> chunk_sizes_;
   };
 
   class ScanRangeInputStream : public orc::InputStream {
@@ -285,6 +287,8 @@ class HdfsOrcScanner : public HdfsScanner {
   inline THdfsCompression::type TranslateCompressionKind(::orc::proto::CompressionKind kind);
 
   inline bool ScratchBatchNotEmpty();
+
+  inline Status AllocateTupleMem(RowBatch* row_batch);
 
   /// Unit test constructor
   HdfsOrcScanner();
