@@ -285,7 +285,7 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
 
   // Release I/O buffers immediately to make sure they are cleaned up
   // in case we return a non-OK status anywhere below.
-  context_->ReleaseCompletedResources(nullptr, true);
+  context_->ReleaseCompletedResources(true);
   RETURN_IF_ERROR(footer_status);
 
   reader_mem_pool_.reset(new OrcMemPool(scan_node_->mem_tracker()));
@@ -400,9 +400,7 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
   }
 
   while (advance_stripe_ || end_of_stripe_) {
-    // Attach any resources and clear the streams before starting a new stripe. These
-    // streams could either be just the footer stream or streams for the previous stripe.
-    context_->ReleaseCompletedResources(row_batch, /* done */ true);
+    context_->ReleaseCompletedResources(/* done */ true);
     // Commit the rows to flush the row batch from the previous row group
     RETURN_IF_ERROR(CommitRows(row_batch, 0));
 
@@ -843,15 +841,6 @@ Status HdfsOrcScanner::CommitRows(RowBatch* dst_batch, int num_rows) {
   tuple_mem_ += static_cast<int64_t>(scan_node_->tuple_desc()->byte_size()) * num_rows;
   tuple_ = reinterpret_cast<Tuple*>(tuple_mem_);
 
-  // We need to pass the row batch to the scan node if there is too much memory attached,
-  // which can happen if the query is very selective. We need to release memory even
-  // if no rows passed predicates. We should only do this when all rows have been copied
-  // from the scratch batch, since those rows may reference completed I/O buffers in
-  // 'context_'.
-  if ((dst_batch->AtCapacity() || context_->num_completed_io_buffers() > 0)
-      && !ScratchBatchNotEmpty()) {
-    context_->ReleaseCompletedResources(dst_batch, /* done */ false);
-  }
   if (context_->cancelled()) return Status::CANCELLED;
   // Check for UDF errors.
   RETURN_IF_ERROR(state_->GetQueryStatus());
@@ -1027,7 +1016,7 @@ inline void HdfsOrcScanner::ReadRow(const orc::ColumnVectorBatch &batch, int row
 void HdfsOrcScanner::Close(RowBatch* row_batch) {
   DCHECK(!is_closed_);
   if (row_batch != nullptr) {
-    context_->ReleaseCompletedResources(row_batch, /* done */ true);
+    context_->ReleaseCompletedResources(true);
     row_batch->tuple_data_pool()->AcquireData(template_tuple_pool_.get(), false);
     if (scan_node_->HasRowBatchQueue()) {
       static_cast<HdfsScanNode*>(scan_node_)->AddMaterializedRowBatch(
@@ -1035,13 +1024,12 @@ void HdfsOrcScanner::Close(RowBatch* row_batch) {
     }
   } else {
     template_tuple_pool_->FreeAll();
-    context_->ReleaseCompletedResources(nullptr, true);
+    context_->ReleaseCompletedResources(true);
   }
   scratch_batch_.reset(NULL);
 
   // Verify all resources (if any) have been transferred.
   DCHECK_EQ(template_tuple_pool_->total_allocated_bytes(), 0);
-  DCHECK_EQ(context_->num_completed_io_buffers(), 0);
 
   assemble_rows_timer_.Stop();
   assemble_rows_timer_.ReleaseCounter();
