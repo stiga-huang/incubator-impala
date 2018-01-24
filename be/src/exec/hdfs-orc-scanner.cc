@@ -777,10 +777,12 @@ int HdfsOrcScanner::TransferScratchTuples(RowBatch* dst_batch) {
   DCHECK_EQ(root_type->getKind(), orc::TypeKind::STRUCT);
 
   DCHECK_LT(dst_batch->num_rows(), dst_batch->capacity());
-  TupleRow* row = dst_batch->GetRow(dst_batch->num_rows());
-  Tuple* tuple = tuple_;
+  int row_id = dst_batch->num_rows();
+  int capacity = dst_batch->capacity();
   int num_to_commit = 0;
-  while (!dst_batch->AtCapacity() && ScratchBatchNotEmpty()) {
+  TupleRow* row = dst_batch->GetRow(row_id);
+  Tuple* tuple = tuple_;
+  while (row_id < capacity && ScratchBatchNotEmpty()) {
     InitTuple(tuple_desc, template_tuple, tuple);
     ReadRow(*scratch_batch_, scratch_batch_tuple_idx_++, root_type, tuple, dst_batch);
     row->SetTuple(scan_node_->tuple_idx(), tuple);
@@ -788,6 +790,7 @@ int HdfsOrcScanner::TransferScratchTuples(RowBatch* dst_batch) {
     if (ExecNode::EvalConjuncts(conjunct_evals, num_conjuncts, row)) {
       row = next_row(row);
       tuple = next_tuple(tuple_desc->byte_size(), tuple);
+      ++row_id;
       ++num_to_commit;
     }
   }
