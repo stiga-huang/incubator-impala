@@ -746,7 +746,7 @@ Status HdfsOrcScanner::ValidateFileMetadata() {
 
 Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
   bool continue_execution = !scan_node_->ReachedLimit() && !context_->cancelled();
-  if (!continue_execution)  return Status::OK();
+  if (!continue_execution)  return Status::CANCELLED;
 
   scratch_batch_tuple_idx_ = 0;
   scratch_batch_ = move(reader_->createRowBatch(row_batch->capacity()));
