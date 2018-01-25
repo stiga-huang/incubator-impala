@@ -38,15 +38,6 @@ using std::move;
 using namespace impala;
 using namespace impala::io;
 
-DEFINE_double(parquet_min_filter_reject_ratio, 0.1, "(Advanced) If the percentage of "
-    "rows rejected by a runtime filter drops below this value, the filter is disabled.");
-
-// The number of row batches between checks to see if a filter is effective, and
-// should be disabled. Must be a power of two.
-constexpr int BATCHES_PER_FILTER_SELECTIVITY_CHECK = 16;
-static_assert(BitUtil::IsPowerOf2(BATCHES_PER_FILTER_SELECTIVITY_CHECK),
-    "BATCHES_PER_FILTER_SELECTIVITY_CHECK must be a power of two");
-
 // Max dictionary page header size in bytes. This is an estimate and only needs to be an
 // upper bound.
 const int MAX_DICT_HEADER_SIZE = 100;
@@ -57,7 +48,6 @@ const int MAX_DICT_HEADER_SIZE = 100;
 // THIS RECORDS INFORMATION ABOUT PAST BEHAVIOR. DO NOT CHANGE THIS CONSTANT.
 const int LEGACY_IMPALA_MAX_DICT_ENTRIES = 40000;
 
-const int64_t HdfsParquetScanner::FOOTER_SIZE;
 const int16_t HdfsParquetScanner::ROW_GROUP_END;
 const int16_t HdfsParquetScanner::INVALID_LEVEL;
 const int16_t HdfsParquetScanner::INVALID_POS;
@@ -69,71 +59,14 @@ const string PARQUET_MEM_LIMIT_EXCEEDED =
 
 Status HdfsParquetScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
     const vector<HdfsFileDesc*>& files) {
-  vector<ScanRange*> footer_ranges;
-  for (int i = 0; i < files.size(); ++i) {
+  for (HdfsFileDesc* file : files) {
     // If the file size is less than 12 bytes, it is an invalid Parquet file.
-    if (files[i]->file_length < 12) {
+    if (file->file_length < 12) {
       return Status(Substitute("Parquet file $0 has an invalid file length: $1",
-          files[i]->filename, files[i]->file_length));
-    }
-    // Compute the offset of the file footer.
-    int64_t footer_size = min(FOOTER_SIZE, files[i]->file_length);
-    int64_t footer_start = files[i]->file_length - footer_size;
-    DCHECK_GE(footer_start, 0);
-
-    // Try to find the split with the footer.
-    ScanRange* footer_split = FindFooterSplit(files[i]);
-
-    for (int j = 0; j < files[i]->splits.size(); ++j) {
-      ScanRange* split = files[i]->splits[j];
-
-      DCHECK_LE(split->offset() + split->len(), files[i]->file_length);
-      // If there are no materialized slots (such as count(*) over the table), we can
-      // get the result with the file metadata alone and don't need to read any row
-      // groups. We only want a single node to process the file footer in this case,
-      // which is the node with the footer split.  If it's not a count(*), we create a
-      // footer range for the split always.
-      if (!scan_node->IsZeroSlotTableScan() || footer_split == split) {
-        ScanRangeMetadata* split_metadata =
-            static_cast<ScanRangeMetadata*>(split->meta_data());
-        // Each split is processed by first issuing a scan range for the file footer, which
-        // is done here, followed by scan ranges for the columns of each row group within
-        // the actual split (in InitColumns()). The original split is stored in the
-        // metadata associated with the footer range.
-        ScanRange* footer_range;
-        if (footer_split != nullptr) {
-          footer_range = scan_node->AllocateScanRange(files[i]->fs,
-              files[i]->filename.c_str(), footer_size, footer_start,
-              split_metadata->partition_id, footer_split->disk_id(),
-              footer_split->expected_local(),
-              BufferOpts(footer_split->try_cache(), files[i]->mtime), split);
-        } else {
-          // If we did not find the last split, we know it is going to be a remote read.
-          footer_range =
-              scan_node->AllocateScanRange(files[i]->fs, files[i]->filename.c_str(),
-                  footer_size, footer_start, split_metadata->partition_id, -1, false,
-                  BufferOpts::Uncached(), split);
-        }
-
-        footer_ranges.push_back(footer_range);
-      } else {
-        scan_node->RangeComplete(THdfsFileFormat::PARQUET, THdfsCompression::NONE);
-      }
+          file->filename, file->file_length));
     }
   }
-  // The threads that process the footer will also do the scan, so we mark all the files
-  // as complete here.
-  RETURN_IF_ERROR(scan_node->AddDiskIoRanges(footer_ranges, files.size()));
-  return Status::OK();
-}
-
-ScanRange* HdfsParquetScanner::FindFooterSplit(HdfsFileDesc* file) {
-  DCHECK(file != nullptr);
-  for (int i = 0; i < file->splits.size(); ++i) {
-    ScanRange* split = file->splits[i];
-    if (split->offset() + split->len() == file->file_length) return split;
-  }
-  return nullptr;
+  return IssueFooterRanges(scan_node, THdfsFileFormat::PARQUET, files);
 }
 
 namespace impala {
@@ -377,18 +310,6 @@ int HdfsParquetScanner::CountScalarColumns(const vector<ParquetColumnReader*>& c
     ++num_columns;
   }
   return num_columns;
-}
-
-void HdfsParquetScanner::CheckFiltersEffectiveness() {
-  for (int i = 0; i < filter_stats_.size(); ++i) {
-    LocalFilterStats* stats = &filter_stats_[i];
-    const RuntimeFilter* filter = filter_ctxs_[i]->filter;
-    double reject_ratio = stats->rejected / static_cast<double>(stats->considered);
-    if (filter->AlwaysTrue() ||
-        reject_ratio < FLAGS_parquet_min_filter_reject_ratio) {
-      stats->enabled = 0;
-    }
-  }
 }
 
 Status HdfsParquetScanner::ProcessSplit() {

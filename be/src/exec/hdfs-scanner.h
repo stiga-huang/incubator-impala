@@ -25,6 +25,7 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "codegen/impala-ir.h"
+#include "common/global-flags.h"
 #include "common/object-pool.h"
 #include "common/status.h"
 #include "exec/hdfs-scan-node-base.h"
@@ -43,6 +44,12 @@ class MemPool;
 class TextConverter;
 class TupleDescriptor;
 class SlotDescriptor;
+
+// The number of row batches between checks to see if a filter is effective, and
+// should be disabled. Must be a power of two.
+constexpr int BATCHES_PER_FILTER_SELECTIVITY_CHECK = 16;
+static_assert(BitUtil::IsPowerOf2(BATCHES_PER_FILTER_SELECTIVITY_CHECK),
+              "BATCHES_PER_FILTER_SELECTIVITY_CHECK must be a power of two");
 
 /// Intermediate structure used for two pass parsing approach. In the first pass,
 /// the FieldLocation structs are filled out and contain where all the fields start and
@@ -287,6 +294,57 @@ class HdfsScanner {
   /// Jitted write tuples function pointer.  Null if codegen is disabled.
   WriteTuplesFn write_tuples_fn_ = nullptr;
 
+  struct LocalFilterStats {
+    /// Total number of rows to which each filter was applied
+    int64_t considered;
+
+    /// Total number of rows that each filter rejected.
+    int64_t rejected;
+
+    /// Total number of rows that each filter could have been applied to (if it were
+    /// available from row 0).
+    int64_t total_possible;
+
+    /// Use known-width type to act as logical boolean.  Set to 1 if corresponding filter
+    /// in filter_ctxs_ should be applied, 0 if it was ineffective and was disabled.
+    uint8_t enabled;
+
+    /// Padding to ensure structs do not straddle cache-line boundary.
+    uint8_t padding[7];
+
+    LocalFilterStats() : considered(0), rejected(0), total_possible(0), enabled(1) { }
+  };
+
+  /// Cached runtime filter contexts, one for each filter that applies to this column.
+  vector<const FilterContext *> filter_ctxs_;
+
+  /// Track statistics of each filter (one for each filter in filter_ctxs_) per scanner so
+  /// that expensive aggregation up to the scan node can be performed once, during
+  /// Close().
+  vector<LocalFilterStats> filter_stats_;
+
+  /// Size of the file footer.  This is a guess.  If this value is too little, we will
+  /// need to issue another read.
+  static const int64_t FOOTER_SIZE = 1024 * 100;
+  static_assert(FOOTER_SIZE <= READ_SIZE_MIN_VALUE,
+      "FOOTER_SIZE can not be greater than READ_SIZE_MIN_VALUE.\n"
+      "You can increase FOOTER_SIZE if you want, "
+      "just don't forget to increase READ_SIZE_MIN_VALUE as well.");
+
+  /// Check runtime filters' effectiveness every BATCHES_PER_FILTER_SELECTIVITY_CHECK
+  /// row batches. Will update 'filter_stats_'.
+  void CheckFiltersEffectiveness();
+
+  /// Find and return the last split in the file if it is assigned to this scan node.
+  /// Returns NULL otherwise.
+  static io::ScanRange* FindFooterSplit(HdfsFileDesc* file);
+
+  /// Issue just the footer range for each file. This function is only used in parquet
+  /// and orc scanners. We'll then parse the footer and pick out the columns we want.
+  static Status IssueFooterRanges(HdfsScanNodeBase* scan_node,
+      const THdfsFileFormat::type& file_type, const std::vector<HdfsFileDesc*>& files)
+      WARN_UNUSED_RESULT;
+
   /// Implements GetNext(). Should be overridden by subclasses.
   /// Only valid to call if the parent scan node is multi-threaded.
   virtual Status GetNextInternal(RowBatch* row_batch) WARN_UNUSED_RESULT {
@@ -318,7 +376,7 @@ class HdfsScanner {
   /// Commits 'num_rows' to 'row_batch'. Advances 'tuple_mem_' and 'tuple_' accordingly.
   /// Frees expr result allocations. Returns non-OK if 'context_' is cancelled or the
   /// query status in 'state_' is non-OK.
-  Status CommitRows(int num_rows, RowBatch* row_batch) WARN_UNUSED_RESULT;
+  virtual Status CommitRows(int num_rows, RowBatch* row_batch) WARN_UNUSED_RESULT;
 
   /// Convenience function for evaluating conjuncts using this scanner's ScalarExprEvaluators.
   /// This must always be inlined so we can correctly replace the call to

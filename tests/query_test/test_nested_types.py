@@ -612,3 +612,20 @@ class TestMaxNestingDepth(ImpalaTestSuite):
       assert False, "Expected table loading to fail."
     except ImpalaBeeswaxException, e:
       assert "Type exceeds the maximum nesting depth" in str(e)
+
+
+class TestOrcNestedTable(ImpalaTestSuite):
+  # Test queries on nested ORC table perform reasonable before we implement IMPALA-6503
+
+  @classmethod
+  def get_workload(self):
+    return 'functional-query'
+
+  @classmethod
+  def add_test_dimensions(cls):
+    super(TestOrcNestedTable, cls).add_test_dimensions()
+    cls.ImpalaTestMatrix.add_constraint(lambda v:
+        v.get_value('table_format').file_format == 'orc')
+
+  def test_nested_orc_table(self, vector):
+    self.run_test_case('QueryTest/nested-types-orc-basic', vector)

@@ -1,0 +1,32 @@
+====
+---- QUERY
+select * from nested_orc.dummy
+---- RESULTS
+1,true,3.141592653,2.7,'yes'
+2,false,1.0101,0.1,'hello'
+---- TYPES
+INT,
+BOOLEAN,
+DOUBLE,
+DOUBLE,
+STRING
+====
+---- QUERY
+select c1, c2, c3, c4, c5 from nested_orc.dummy
+---- RESULTS
+1,true,3.141592653,2.7,'yes'
+2,false,1.0101,0.1,'hello'
+---- TYPES
+INT,
+BOOLEAN,
+DOUBLE,
+DOUBLE,
+STRING
+====
+---- QUERY
+select n4.col1 from nested_orc.dummy
+---- CATCH
+NotImplementedException: Scan of table 'nested_orc.dummy' in format 'ORC' is not supported because the table has a column 'n1' with a complex type 'ARRAY<INT>'.
+Complex types are supported for these file formats: PARQUET.
+====
+

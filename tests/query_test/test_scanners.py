@@ -105,7 +105,7 @@ class TestScannersAllTableFormatsWithLimit(ImpalaTestSuite):
     query_template = "select * from alltypes limit %s"
     for i in range(1, iterations):
       # Vary the limit to vary the timing of cancellation
-      limit = (iterations * 100) % 1000 + 1
+      limit = (i * 100) % 1001 + 1
       query = query_template % limit
       result = self.execute_query(query, vector.get_value('exec_option'),
           table_format=vector.get_value('table_format'))
@@ -814,7 +814,7 @@ class TestTextScanRangeLengths(ImpalaTestSuite):
 @SkipIfLocal.hive
 class TestScanTruncatedFiles(ImpalaTestSuite):
   @classmethod
-  def get_workload(self):
+  def get_workload(cls):
     return 'functional-query'
 
   @classmethod
@@ -855,3 +855,73 @@ class TestScanTruncatedFiles(ImpalaTestSuite):
     result = self.execute_query("select count(*) from %s" % fq_tbl_name)
     assert(len(result.data) == 1)
     assert(result.data[0] == str(num_rows))
+
+
+class TestOrc(ImpalaTestSuite):
+  @classmethod
+  def get_workload(cls):
+    return 'functional-query'
+
+  @classmethod
+  def add_test_dimensions(cls):
+    super(TestOrc, cls).add_test_dimensions()
+    cls.ImpalaTestMatrix.add_constraint(
+      lambda v: v.get_value('table_format').file_format == 'orc')
+
+  def test_misaligned_orc_stripes(self, vector, unique_database):
+    self._build_lineitem_table_helper(unique_database, 'lineitem_threeblocks',
+        'lineitem_threeblocks.orc')
+    self._build_lineitem_table_helper(unique_database, 'lineitem_sixblocks',
+        'lineitem_sixblocks.orc')
+    self._build_lineitem_table_helper(unique_database,
+        'lineitem_orc_multiblock_one_stripe',
+        'lineitem_orc_multiblock_one_stripe.orc')
+
+    # functional_orc.alltypes is well-formatted. 'NumScannersWithNoReads' counters are
+    # set to 0.
+    table_name = 'functional_orc.alltypes'
+    self._misaligned_orc_stripes_helper(table_name, 7300)
+    # lineitem_threeblock.orc is ill-formatted but every scanner reads some stripes.
+    # 'NumScannersWithNoReads' counters are set to 0.
+    table_name = unique_database + '.lineitem_threeblocks'
+    self._misaligned_orc_stripes_helper(table_name, 40000)
+    # lineitem_sixblocks.orc is ill-formatted but every scanner reads some stripes.
+    # 'NumScannersWithNoReads' counters are set to 0.
+    table_name = unique_database + '.lineitem_sixblocks'
+    self._misaligned_orc_stripes_helper(table_name, 90000)
+    # Scanning lineitem_orc_multiblock_one_stripe.orc finds two scan ranges that end up
+    # doing no reads because the file is poorly formatted.
+    table_name = unique_database + '.lineitem_orc_multiblock_one_stripe'
+    self._misaligned_orc_stripes_helper(
+      table_name, 60000, num_scanners_with_no_reads=2)
+
+  def _build_lineitem_table_helper(self, db, tbl, file):
+    self.client.execute("create table %s.%s like tpch.lineitem stored as orc" % (db, tbl))
+    tbl_loc = get_fs_path("/test-warehouse/%s.db/%s" % (db, tbl))
+    check_call(['hdfs', 'dfs', '-Ddfs.block.size=1048576', '-copyFromLocal',
+        os.environ['IMPALA_HOME'] + "/testdata/LineItemMultiBlock/" + file, tbl_loc])
+
+  def _misaligned_orc_stripes_helper(
+          self, table_name, rows_in_table, num_scanners_with_no_reads=0):
+    """Checks if 'num_scanners_with_no_reads' indicates the expected number of scanners
+    that don't read anything because the underlying file is poorly formatted
+    """
+    query = 'select * from %s' % table_name
+    result = self.client.execute(query)
+    assert len(result.data) == rows_in_table
+
+    runtime_profile = str(result.runtime_profile)
+    num_scanners_with_no_reads_list = re.findall(
+      'NumScannersWithNoReads: ([0-9]*)', runtime_profile)
+
+    # This will fail if the number of impalads != 3
+    # The fourth fragment is the "Averaged Fragment"
+    assert len(num_scanners_with_no_reads_list) == 4
+
+    # Calculate the total number of scan ranges that ended up not reading anything because
+    # an underlying file was poorly formatted.
+    # Skip the Averaged Fragment; it comes first in the runtime profile.
+    total = 0
+    for n in num_scanners_with_no_reads_list[1:]:
+      total += int(n)
+    assert total == num_scanners_with_no_reads

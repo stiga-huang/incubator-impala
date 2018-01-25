@@ -291,7 +291,43 @@ def load():
     impala.invalidate_metadata()
     impala.compute_stats()
 
-  LOG.info("Done loading nested TPCH data")
+
+# Create a simple ORC table with nested types to test that queries on it won't fail
+# before we implement IMPALA-6503
+def load_orc():
+  cluster.hdfs.ensure_home_dir()
+  db = "nested_orc"
+  tbl = "dummy"
+  with cluster.hive.cursor() as hive:
+    for stmt in """
+        CREATE DATABASE IF NOT EXISTS {db};
+
+        CREATE TABLE IF NOT EXISTS {db}.{tbl} (
+            c1    INT,
+            n1    ARRAY<INT>,
+            c2    BOOLEAN,
+            n2    ARRAY<STRING>,
+            c3    DOUBLE,
+            n3    MAP<INT, STRING>,
+            c4    DOUBLE,
+            n4    STRUCT<col1: INT, col2: STRING, col3: BOOLEAN>,
+            c5    STRING
+        ) STORED AS ORC;
+
+        INSERT OVERWRITE TABLE {db}.{tbl}
+        SELECT 1, array(0,0,100,99,98), true, array('a','b','c','dd','eee'),
+               3.141592653, map(0, 'a', 1, 'b'), 2.7, struct(123,'aaa',true), 'yes'
+        UNION ALL
+        SELECT 2, array(1,2,3), false, array('xyz'),
+               1.0101, map(1, 'x'), 0.1, struct(0, 'zzz', false), 'hello';"""\
+            .format(db=db, tbl=tbl).split(";"):
+      if not stmt.strip():
+        continue
+      LOG.info("Executing: {0}".format(stmt))
+      hive.execute(stmt)
+
+  with cluster.impala.cursor() as impala:
+    impala.execute("invalidate metadata {0}.{1}".format(db, tbl))
 
 if __name__ == "__main__":
 
@@ -315,6 +351,9 @@ if __name__ == "__main__":
   chunks = args.chunks
 
   if is_loaded():
-    LOG.info("Data is already loaded")
+    LOG.info("Parquet data is already loaded")
   else:
     load()
+
+  load_orc()
+  LOG.info("Done loading nested TPCH data")
