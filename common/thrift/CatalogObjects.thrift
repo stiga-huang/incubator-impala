@@ -55,6 +55,7 @@ enum TTableType {
 enum THdfsFileFormat {
   TEXT,
   RC_FILE,
+  ORC,
   SEQUENCE_FILE,
   AVRO,
   PARQUET,

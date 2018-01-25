@@ -132,6 +132,8 @@ table_name:decimal_tbl, constraint:restrict_to, table_format:text/none/none
 table_name:decimal_tiny, constraint:restrict_to, table_format:text/none/none
 table_name:decimal_tbl, constraint:restrict_to, table_format:parquet/none/none
 table_name:decimal_tiny, constraint:restrict_to, table_format:parquet/none/none
+table_name:decimal_tbl, constraint:restrict_to, table_format:orc/none/none
+table_name:decimal_tiny, constraint:restrict_to, table_format:orc/none/none
 
 table_name:avro_decimal_tbl, constraint:restrict_to, table_format:avro/snap/block
 
