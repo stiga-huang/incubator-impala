@@ -829,8 +829,6 @@ Status HdfsOrcScanner::AllocateTupleMem(RowBatch* row_batch) {
   RETURN_IF_ERROR(
       row_batch->ResizeAndAllocateTupleBuffer(state_, &tuple_buffer_size, &tuple_mem_));
   tuple_ = reinterpret_cast<Tuple*>(tuple_mem_);
-  VLOG_QUERY << "allocate tuple buffer begin=" << (void*)tuple_ << ", bytes=" << tuple_buffer_size
-             << ", row_size=" << row_batch->row_desc()->GetRowSize();
   DCHECK_GT(row_batch->capacity(), 0);
   return Status::OK();
 }

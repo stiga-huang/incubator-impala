@@ -105,7 +105,7 @@ class TestScannersAllTableFormatsWithLimit(ImpalaTestSuite):
     query_template = "select * from alltypes limit %s"
     for i in range(1, iterations):
       # Vary the limit to vary the timing of cancellation
-      limit = (iterations * 100) % 1000 + 1
+      limit = (i * 100) % 1001 + 1
       query = query_template % limit
       result = self.execute_query(query, vector.get_value('exec_option'),
           table_format=vector.get_value('table_format'))
