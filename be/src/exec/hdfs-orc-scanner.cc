@@ -14,47 +14,23 @@
 
 #include "exec/hdfs-orc-scanner.h"
 
-#include <limits> // for std::numeric_limits
 #include <queue>
 
-#include <boost/algorithm/string.hpp>
-#include <gflags/gflags.h>
-#include <gutil/strings/substitute.h>
-
-#include "common/object-pool.h"
-#include "common/logging.h"
-#include "exec/hdfs-scan-node.h"
 #include "exec/scanner-context.inline.h"
-#include "exec/read-write-util.h"
 #include "exprs/expr.h"
 #include "orc/TypeImpl.hh"
 #include "runtime/collection-value-builder.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime-state.h"
-#include "runtime/mem-pool.h"
-#include "runtime/row-batch.h"
 #include "runtime/runtime-filter.inline.h"
 #include "runtime/tuple-row.h"
-#include "runtime/tuple.h"
 #include "runtime/scoped-buffer.h"
-#include "runtime/string-value.h"
 #include "util/bitmap.h"
-#include "util/bit-util.h"
 #include "util/decompress.h"
-#include "util/debug-util.h"
-#include "util/error-util.h"
 #include "util/dict-encoding.h"
-#include "util/rle-encoding.h"
-#include "util/runtime-profile.h"
 
 #include "common/names.h"
 
-using boost::algorithm::is_any_of;
-using boost::algorithm::split;
-using boost::algorithm::token_compress_on;
 using namespace impala;
 using namespace impala::io;
-using namespace strings;
 
 DEFINE_double(orc_min_filter_reject_ratio, 0.1, "(Advanced) If the percentage of "
     "rows rejected by a runtime filter drops below this value, the filter is disabled.");
