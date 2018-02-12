@@ -16,7 +16,7 @@
 * limitations under the License.
 */
 
-#include "orc/C09Adapter.hh"
+#include "C09Adapter.hh"
 #include <sstream>
 
 int64_t std::stoll(std::string str) {

@@ -19,7 +19,7 @@
 #ifndef TYPE_IMPL_HH
 #define TYPE_IMPL_HH
 
-#include "orc/Type.hh"
+#include "Type.hh"
 
 #include "Adaptor.hh"
 #include "wrap/orc-proto-wrapper.hh"

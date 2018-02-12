@@ -19,7 +19,7 @@
 #ifndef ORC_COLUMN_READER_HH
 #define ORC_COLUMN_READER_HH
 
-#include "orc/Vector.hh"
+#include "Vector.hh"
 #include "ByteRLE.hh"
 #include "Compression.hh"
 #include "Timezone.hh"
@@ -27,89 +27,103 @@
 
 namespace orc {
 
-class StripeStreams {
- public:
-  virtual ~StripeStreams();
+  class StripeStreams {
+  public:
+    virtual ~StripeStreams();
+
+    /**
+     * Get the array of booleans for which columns are selected.
+     * @return the address of an array which contains true at the index of
+     *    each columnId is selected.
+     */
+    virtual const std::vector<bool> getSelectedColumns() const = 0;
+
+    /**
+     * Get the encoding for the given column for this stripe.
+     */
+    virtual proto::ColumnEncoding getEncoding(uint64_t columnId) const = 0;
+
+    /**
+     * Get the stream for the given column/kind in this stripe.
+     * @param columnId the id of the column
+     * @param kind the kind of the stream
+     * @param shouldStream should the reading page the stream in
+     * @return the new stream
+     */
+    virtual std::unique_ptr<SeekableInputStream>
+                    getStream(uint64_t columnId,
+                              proto::Stream_Kind kind,
+                              bool shouldStream) const = 0;
+
+    /**
+     * Get the memory pool for this reader.
+     */
+    virtual MemoryPool& getMemoryPool() const = 0;
+
+    /**
+     * Get the writer's timezone, so that we can convert their dates correctly.
+     */
+    virtual const Timezone& getWriterTimezone() const = 0;
+
+    /**
+     * Get the error stream.
+     * @return a pointer to the stream that should get error messages
+     */
+    virtual std::ostream* getErrorStream() const = 0;
+
+    /**
+     * Should the reader throw when the scale overflows when reading Hive 0.11
+     * decimals.
+     * @return true if it should throw
+     */
+    virtual bool getThrowOnHive11DecimalOverflow() const = 0;
+
+    /**
+     * What is the scale forced on the Hive 0.11 decimals?
+     * @return the number of scale digits
+     */
+    virtual int32_t getForcedScaleOnHive11Decimal() const = 0;
+  };
 
   /**
-   * Get the reader options.
+   * The interface for reading ORC data types.
    */
-  virtual const ReaderOptions &getReaderOptions() const = 0;
+  class ColumnReader {
+  protected:
+    std::unique_ptr<ByteRleDecoder> notNullDecoder;
+    uint64_t columnId;
+    MemoryPool& memoryPool;
+
+  public:
+    ColumnReader(const Type& type, StripeStreams& stipe);
+
+    virtual ~ColumnReader();
+
+    /**
+     * Skip number of specified rows.
+     * @param numValues the number of values to skip
+     * @return the number of non-null values skipped
+     */
+    virtual uint64_t skip(uint64_t numValues);
+
+    /**
+     * Read the next group of values into this rowBatch.
+     * @param rowBatch the memory to read into.
+     * @param numValues the number of values to read
+     * @param notNull if null, all values are not null. Otherwise, it is
+     *           a mask (with at least numValues bytes) for which values to
+     *           set.
+     */
+    virtual void next(ColumnVectorBatch& rowBatch,
+                      uint64_t numValues,
+                      char* notNull);
+  };
 
   /**
-   * Get the array of booleans for which columns are selected.
-   * @return the address of an array which contains true at the index of
-   *    each columnId is selected.
+   * Create a reader for the given stripe.
    */
-  virtual const std::vector<bool> getSelectedColumns() const = 0;
-
-  /**
-   * Get the encoding for the given column for this stripe.
-   */
-  virtual proto::ColumnEncoding getEncoding(uint64_t columnId) const = 0;
-
-  /**
-   * Get the stream for the given column/kind in this stripe.
-   * @param columnId the id of the column
-   * @param kind the kind of the stream
-   * @param shouldStream should the reading page the stream in
-   * @return the new stream
-   */
-  virtual std::unique_ptr <SeekableInputStream>
-  getStream(uint64_t columnId,
-            proto::Stream_Kind kind,
-            bool shouldStream) const = 0;
-
-  /**
-   * Get the memory pool for this reader.
-   */
-  virtual MemoryPool &getMemoryPool() const = 0;
-
-  /**
-   * Get the writer's timezone, so that we can convert their dates correctly.
-   */
-  virtual const Timezone &getWriterTimezone() const = 0;
-};
-
-/**
- * The interface for reading ORC data types.
- */
-class ColumnReader {
- protected:
-  std::unique_ptr <ByteRleDecoder> notNullDecoder;
-  uint64_t columnId;
-  MemoryPool &memoryPool;
-
- public:
-  ColumnReader(const Type &type, StripeStreams &stipe);
-
-  virtual ~ColumnReader();
-
-  /**
-   * Skip number of specified rows.
-   * @param numValues the number of values to skip
-   * @return the number of non-null values skipped
-   */
-  virtual uint64_t skip(uint64_t numValues);
-
-  /**
-   * Read the next group of values into this rowBatch.
-   * @param rowBatch the memory to read into.
-   * @param numValues the number of values to read
-   * @param notNull if null, all values are not null. Otherwise, it is
-   *           a mask (with at least numValues bytes) for which values to
-   *           set.
-   */
-  virtual void next(ColumnVectorBatch &rowBatch,
-                    uint64_t numValues,
-                    char *notNull);
-};
-
-/**
- * Create a reader for the given stripe.
- */
-std::unique_ptr <ColumnReader> buildReader(const Type &type,
-                                           StripeStreams &stripe);
+  std::unique_ptr<ColumnReader> buildReader(const Type& type,
+                                            StripeStreams& stripe);
 }
 
 #endif

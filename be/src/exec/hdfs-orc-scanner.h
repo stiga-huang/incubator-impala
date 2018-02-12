@@ -154,29 +154,36 @@ class HdfsOrcScanner : public HdfsScanner {
   /// Number of scratch batches processed so far.
   int64_t row_batches_produced_;
 
-  /// Mem pool used in orc readers
+  /// Mem pool used in orc readers.
   boost::scoped_ptr<OrcMemPool> reader_mem_pool_;
 
+  /// orc::Reader's responsibility is to read the footer and metadata from an ORC file.
+  /// It creates orc::RowReader for further materialization. orc::RowReader is used for
+  /// reading rows from the file.
   std::unique_ptr<orc::Reader> reader_;
+  std::unique_ptr<orc::RowReader> row_reader_;
 
   /// Orc reader will write slot values into this scratch batch for top-level tuples.
   /// See AssembleRows().
   std::unique_ptr<orc::ColumnVectorBatch> scratch_batch_;
   int scratch_batch_tuple_idx_;
 
-  /// File metadata protobuf object
+  /// File metadata protobuf object.
   orc::proto::PostScript postscript_;
   orc::proto::Footer footer_;
 
   /// Serialized string of orc::proto::FileTail. Used in create orc::reader to avoid
-  /// parsing file tail again
+  /// parsing file tail again.
   std::string serialized_file_tail_;
 
-  /// The root schema node for this file
+  /// The root schema node for this file.
   std::unique_ptr<orc::Type> schema_;
 
-  /// ReaderOptions used to create orc reader
-  orc::ReaderOptions orc_reader_options_;
+  /// ReaderOptions used to create orc::Reader.
+  orc::ReaderOptions reader_options_;
+
+  /// RowReaderOptions used to create orc::RowReader.
+  orc::RowReaderOptions row_reader_options;
 
   /// Column id is the pre order id in orc::Type tree.
   /// Map from column id to slot descriptor.

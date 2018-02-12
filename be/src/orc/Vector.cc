@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-#include "orc/Vector.hh"
+#include "Vector.hh"
 
 #include "Adaptor.hh"
 #include "Exceptions.hh"

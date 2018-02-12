@@ -16,8 +16,8 @@
  * limitations under the License.
  */
 
-#include "orc/Int128.hh"
-#include "orc/MemoryPool.hh"
+#include "Int128.hh"
+#include "MemoryPool.hh"
 
 #include "Adaptor.hh"
 

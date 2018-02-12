@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-#include "orc/Int128.hh"
+#include "Int128.hh"
 #include "Adaptor.hh"
 
 #include <iomanip>

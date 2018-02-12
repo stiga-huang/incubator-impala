@@ -52,8 +52,6 @@ namespace orc {
   static const int64_t DAYS_PER_MONTH[2][MONTHS_PER_YEAR] =
      {{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31},
       {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}};
-  static const int64_t SECONDS_PER_HOUR = 60 * 60;
-  static const int64_t SECONDS_PER_DAY = SECONDS_PER_HOUR * 24;
   static const int64_t DAYS_PER_WEEK = 7;
 
   // Leap years and day of the week repeat every 400 years, which makes it
@@ -461,8 +459,8 @@ namespace orc {
   /**
    * Parse the POSIX TZ string.
    */
-  std::unique_ptr<FutureRule> parseFutureRule(const std::string& ruleString) {
-    std::unique_ptr<FutureRule> result(new FutureRuleImpl());
+  std::shared_ptr<FutureRule> parseFutureRule(const std::string& ruleString) {
+    std::shared_ptr<FutureRule> result(new FutureRuleImpl());
     FutureRuleParser parser(ruleString,
                             dynamic_cast<FutureRuleImpl*>(result.get()));
     return result;
@@ -636,7 +634,7 @@ namespace orc {
     uint64_t ancientVariant;
 
     // the rule for future times
-    std::unique_ptr<FutureRule> futureRule;
+    std::shared_ptr<FutureRule> futureRule;
 
     // the last explicit transition after which we use the future rule
     int64_t lastTransition;
@@ -651,7 +649,7 @@ namespace orc {
     DIAGNOSTIC_IGNORE("-Wexit-time-destructors")
   #endif
   static std::mutex timezone_mutex;
-  static std::map<std::string, Timezone*> timezoneCache;
+  static std::map<std::string, std::shared_ptr<Timezone> > timezoneCache;
   DIAGNOSTIC_POP
 
   Timezone::~Timezone() {
@@ -691,10 +689,10 @@ namespace orc {
   const Timezone& getTimezoneByFilename(const std::string& filename) {
     // ORC-110
     std::lock_guard<std::mutex> timezone_lock(timezone_mutex);
-    std::map<std::string, Timezone*>::iterator itr =
+    std::map<std::string, std::shared_ptr<Timezone> >::iterator itr =
       timezoneCache.find(filename);
     if (itr != timezoneCache.end()) {
-      return *(itr->second);
+      return *(itr->second).get();
     }
     int in = open(filename.c_str(), O_RDONLY);
     if (in == -1) {
@@ -729,9 +727,8 @@ namespace orc {
       err << "failed to close " << filename << " - " << strerror(errno);
       throw TimezoneError(err.str());
     }
-    Timezone* result = new TimezoneImpl(filename, buffer);
-    timezoneCache[filename] = result;
-    return *result;
+    timezoneCache[filename] = std::shared_ptr<Timezone>(new TimezoneImpl(filename, buffer));
+    return *timezoneCache[filename].get();
   }
 
   /**

@@ -320,9 +320,11 @@ void HdfsOrcScanner::UpdateReaderOptions(const TupleDescriptor* tuple_desc,
     }
   }
   COUNTER_SET(num_cols_counter_, static_cast<int64_t>(num_columns));
-  orc_reader_options_.include(selected_indices);
-  orc_reader_options_.setMemoryPool(mem_pool);
-  orc_reader_options_.setSerializedFileTail(serialized_file_tail_);
+  row_reader_options.include(selected_indices);
+  reader_options_.setMemoryPool(mem_pool);
+  reader_options_.setSerializedFileTail(serialized_file_tail_);
+  unique_ptr<orc::InputStream> input_stream(new ScanRangeInputStream(this));
+  reader_ = orc::createReader(move(input_stream), reader_options_);
 }
 
 Status HdfsOrcScanner::ProcessSplit() {
@@ -489,9 +491,8 @@ Status HdfsOrcScanner::NextStripe() {
     // TODO: check if this stripe can be skipped by stats.
 
     COUNTER_ADD(num_stripes_counter_, 1);
-    orc_reader_options_.range(stripe.offset(), stripe_len);
-    unique_ptr<orc::InputStream> input_stream(new ScanRangeInputStream(this));
-    reader_ = orc::createReader(move(input_stream), orc_reader_options_);
+    row_reader_options.range(stripe.offset(), stripe_len);
+    row_reader_ = reader_->createRowReader(row_reader_options);
     end_of_stripe_ = false;
     break;
   }
@@ -733,14 +734,14 @@ Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
   if (!continue_execution)  return Status::CANCELLED;
 
   scratch_batch_tuple_idx_ = 0;
-  scratch_batch_ = move(reader_->createRowBatch(row_batch->capacity()));
+  scratch_batch_ = move(row_reader_->createRowBatch(row_batch->capacity()));
   DCHECK_EQ(scratch_batch_->numElements, 0);
 
   int64_t num_rows_read = 0;
   while (continue_execution) {  // one ORC scratch batch (ColumnVectorBatch) in a round
     if (scratch_batch_tuple_idx_ == scratch_batch_->numElements) {
       try {
-        if (!reader_->next(*scratch_batch_)) {
+        if (!row_reader_->next(*scratch_batch_)) {
           end_of_stripe_ = true;
           break; // no more data to process
         }
@@ -781,7 +782,7 @@ int HdfsOrcScanner::TransferScratchTuples(RowBatch* dst_batch) {
   ScalarExprEvaluator* const* conjunct_evals = conjunct_evals_->data();
   int num_conjuncts = conjunct_evals_->size();
 
-  const orc::Type* root_type = &reader_->getSelectedType();
+  const orc::Type* root_type = &row_reader_->getSelectedType();
   DCHECK_EQ(root_type->getKind(), orc::TypeKind::STRUCT);
 
   DCHECK_LT(dst_batch->num_rows(), dst_batch->capacity());

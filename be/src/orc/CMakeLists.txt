@@ -196,7 +196,7 @@ PROTOBUF_GENERATE_CPP(
 
 add_library (Orc #STATIC
   "${CMAKE_CURRENT_BINARY_DIR}/Adaptor.hh"
-  #orc_proto.pb.h
+  orc_proto.pb.h
   wrap/orc-proto-wrapper.cc
   ByteRLE.cc
   ColumnPrinter.cc
@@ -211,6 +211,8 @@ add_library (Orc #STATIC
   RLEv1.cc
   RLEv2.cc
   RLE.cc
+  Statistics.cc
+  StripeStream.cc
   Timezone.cc
   TypeImpl.cc
   Vector.cc

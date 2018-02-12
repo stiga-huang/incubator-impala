@@ -19,7 +19,7 @@
 #ifndef ORC_LZO_HH
 #define ORC_LZO_HH
 
-#include "orc/OrcFile.hh"
+#include "OrcFile.hh"
 
 #include "Adaptor.hh"
 

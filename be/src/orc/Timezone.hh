@@ -31,6 +31,9 @@
 
 namespace orc {
 
+  static const int64_t SECONDS_PER_HOUR = 60 * 60;
+  static const int64_t SECONDS_PER_DAY = SECONDS_PER_HOUR * 24;
+
   /**
    * A variant  (eg. PST or PDT) of a timezone (eg. America/Los_Angeles).
    */
@@ -116,7 +119,7 @@ namespace orc {
   /**
    * Parse the POSIX TZ string.
    */
-  std::unique_ptr<FutureRule> parseFutureRule(const std::string& ruleString);
+  std::shared_ptr<FutureRule> parseFutureRule(const std::string& ruleString);
 }
 
 #endif
