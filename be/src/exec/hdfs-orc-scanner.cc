@@ -18,7 +18,6 @@
 
 #include "exec/scanner-context.inline.h"
 #include "exprs/expr.h"
-#include "orc/TypeImpl.hh"
 #include "runtime/collection-value-builder.h"
 #include "runtime/runtime-filter.inline.h"
 #include "runtime/tuple-row.h"
@@ -196,32 +195,14 @@ void HdfsOrcScanner::ScanRangeInputStream::read(void* buf, uint64_t length,
   if (!status.ok()) {
     VLOG_QUERY << "Stop reading " << filename_ << " (offset=" << offset << ", length="
                << length << "): " << status.GetDetail();
-    memset(buf, 0, length);
     throw std::runtime_error("Cannot read from file: " + status.GetDetail());
   }
 }
 
 HdfsOrcScanner::HdfsOrcScanner(HdfsScanNodeBase* scan_node, RuntimeState* state)
     : HdfsScanner(scan_node, state),
-      stripe_idx_(-1),
-      stripe_rows_read_(0),
-      advance_stripe_(true),
-      end_of_stripe_(true),
-      row_batches_produced_(0),
-      scratch_batch_tuple_idx_(0),
-      metadata_range_(nullptr),
-      assemble_rows_timer_(scan_node_->materialize_tuple_timer()),
-      process_footer_timer_stats_(nullptr),
-      num_cols_counter_(nullptr),
-      num_stats_filtered_stripes_counter_(nullptr),
-      num_stripes_counter_(nullptr),
-      num_scanners_with_no_reads_counter_(nullptr) {
+      assemble_rows_timer_(scan_node_->materialize_tuple_timer()) {
   assemble_rows_timer_.Stop();
-}
-
-HdfsOrcScanner::HdfsOrcScanner()
-    : metadata_range_(nullptr),
-      assemble_rows_timer_(nullptr) {
 }
 
 HdfsOrcScanner::~HdfsOrcScanner() {
@@ -252,6 +233,9 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
 
   DCHECK(parse_status_.ok()) << "Invalid parse_status_" << parse_status_.GetDetail();
 
+  reader_mem_pool_.reset(new OrcMemPool(scan_node_->mem_tracker()));
+  reader_options_.setMemoryPool(*reader_mem_pool_);
+
   // Each scan node can process multiple splits. Each split processes the footer once.
   // We use a timer to measure the time taken to ProcessFileTail() per split and add
   // this time to the averaged timer.
@@ -268,10 +252,8 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
   context_->ReleaseCompletedResources(true);
   RETURN_IF_ERROR(footer_status);
 
-  reader_mem_pool_.reset(new OrcMemPool(scan_node_->mem_tracker()));
-
   // Update orc reader options base on the tuple descriptor
-  UpdateReaderOptions(scan_node_->tuple_desc(), *reader_mem_pool_);
+  SelectColumns(scan_node_->tuple_desc());
 
   // Set top-level template tuple.
   template_tuple_ = template_tuple_map_[scan_node_->tuple_desc()];
@@ -279,8 +261,7 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
   return Status::OK();
 }
 
-void HdfsOrcScanner::UpdateReaderOptions(const TupleDescriptor* tuple_desc,
-    OrcMemPool &mem_pool) {
+void HdfsOrcScanner::SelectColumns(const TupleDescriptor *tuple_desc) {
   list<uint64_t> selected_indices;
   int num_columns = 0;
   // TODO validate columns. e.g. scale of decimal type
@@ -292,7 +273,7 @@ void HdfsOrcScanner::UpdateReaderOptions(const TupleDescriptor* tuple_desc,
     int col_idx = path[0];
     // The first index in a path includes the table's partition keys
     int col_idx_in_file = col_idx - scan_node_->num_partition_keys();
-    if (col_idx_in_file >= schema_->getSubtypeCount()) {
+    if (col_idx_in_file >= reader_->getType().getSubtypeCount()) {
       // In this case, we are selecting a column that is not in the file.
       // Update the template tuple to put a nullptr in this slot.
       Tuple** template_tuple = &template_tuple_map_[tuple_desc];
@@ -304,7 +285,7 @@ void HdfsOrcScanner::UpdateReaderOptions(const TupleDescriptor* tuple_desc,
       continue;
     }
     selected_indices.push_back(col_idx_in_file);
-    col_id_slot_map_[schema_->getSubtype(col_idx_in_file)->getColumnId()] = slot_desc;
+    col_id_slot_map_[reader_->getType().getSubtype(col_idx_in_file)->getColumnId()] = slot_desc;
     const ColumnType &col_type = scan_node_->hdfs_table()->col_descs()[col_idx].type();
     if (col_type.type == TYPE_ARRAY) {
       // TODO
@@ -321,10 +302,6 @@ void HdfsOrcScanner::UpdateReaderOptions(const TupleDescriptor* tuple_desc,
   }
   COUNTER_SET(num_cols_counter_, static_cast<int64_t>(num_columns));
   row_reader_options.include(selected_indices);
-  reader_options_.setMemoryPool(mem_pool);
-  reader_options_.setSerializedFileTail(serialized_file_tail_);
-  unique_ptr<orc::InputStream> input_stream(new ScanRangeInputStream(this));
-  reader_ = orc::createReader(move(input_stream), reader_options_);
 }
 
 Status HdfsOrcScanner::ProcessSplit() {
@@ -348,15 +325,16 @@ Status HdfsOrcScanner::ProcessSplit() {
 
 Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
   if (scan_node_->IsZeroSlotTableScan()) {
+    uint64_t file_rows = reader_->getNumberOfRows();
     // There are no materialized slots, e.g. count(*) over the table.  We can serve
     // this query from just the file metadata.  We don't need to read the column data.
-    if (stripe_rows_read_ == footer_.numberofrows()) {
+    if (stripe_rows_read_ == file_rows) {
       eos_ = true;
       return Status::OK();
     }
     assemble_rows_timer_.Start();
-    DCHECK_LT(stripe_rows_read_, footer_.numberofrows());
-    int64_t rows_remaining = footer_.numberofrows() - stripe_rows_read_;
+    DCHECK_LT(stripe_rows_read_, file_rows);
+    int64_t rows_remaining = file_rows - stripe_rows_read_;
     int max_tuples = min<int64_t>(row_batch->capacity(), rows_remaining);
     TupleRow* current_row = row_batch->GetRow(row_batch->AddRow());
     int num_to_commit = WriteTemplateTuples(current_row, max_tuples);
@@ -387,8 +365,8 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
     RETURN_IF_ERROR(CommitRows(row_batch, 0));
 
     RETURN_IF_ERROR(NextStripe());
-    DCHECK_LE(stripe_idx_, footer_.stripes_size());
-    if (stripe_idx_ == footer_.stripes_size()) {
+    DCHECK_LE(stripe_idx_, reader_->getNumberOfStripes());
+    if (stripe_idx_ == reader_->getNumberOfStripes()) {
       eos_ = true;
       DCHECK(parse_status_.ok());
       return Status::OK();
@@ -458,7 +436,7 @@ Status HdfsOrcScanner::NextStripe() {
     parse_status_ = Status::OK();
 
     ++stripe_idx_;
-    if (stripe_idx_ >= footer_.stripes_size()) {
+    if (stripe_idx_ >= reader_->getNumberOfStripes()) {
       if (start_with_first_stripe && misaligned_stripe_skipped) {
         // We started with the first stripe and skipped all the stripes because they were
         // misaligned. The execution flow won't reach this point if there is at least one
@@ -467,17 +445,17 @@ Status HdfsOrcScanner::NextStripe() {
       }
       break;
     }
-    const orc::proto::StripeInformation &stripe = footer_.stripes(stripe_idx_);
+    unique_ptr<orc::StripeInformation> stripe = reader_->getStripe(stripe_idx_);
     // Also check 'footer_.numberOfRows' to make sure 'select count(*)' and 'select *'
     // behave consistently for corrupt files that have 'footer_.numberOfRows == 0'
     // but some data in stripe.
-    if (stripe.numberofrows() == 0 || footer_.numberofrows() == 0) continue;
+    if (stripe->getNumberOfRows() == 0 || reader_->getNumberOfRows() == 0) continue;
 
     // TODO ValidateColumnOffsets
 
-    google::uint64 stripe_offset = stripe.offset();
-    google::uint64 stripe_len = stripe.indexlength() + stripe.datalength() +
-        stripe.footerlength();
+    google::uint64 stripe_offset = stripe->getOffset();
+    google::uint64 stripe_len = stripe->getIndexLength() + stripe->getDataLength() +
+        stripe->getFooterLength();
     int64_t stripe_mid_pos = stripe_offset + stripe_len / 2;
     if (!(stripe_mid_pos >= split_offset &&
         stripe_mid_pos < split_offset + split_length)) {
@@ -491,7 +469,7 @@ Status HdfsOrcScanner::NextStripe() {
     // TODO: check if this stripe can be skipped by stats.
 
     COUNTER_ADD(num_stripes_counter_, 1);
-    row_reader_options.range(stripe.offset(), stripe_len);
+    row_reader_options.range(stripe->getOffset(), stripe_len);
     row_reader_ = reader_->createRowReader(row_reader_options);
     end_of_stripe_ = false;
     break;
@@ -502,231 +480,40 @@ Status HdfsOrcScanner::NextStripe() {
 }
 
 Status HdfsOrcScanner::ProcessFileTail() {
-  int64_t split_len = stream_->scan_range()->len();
-  int64_t file_len = stream_->file_desc()->file_length;
-
-  // We're processing the scan range issued in IssueInitialRanges(). The scan range should
-  // be the last FOOTER_BYTES of the file. !success means the file is shorter than we
-  // expect. Note we can't detect if the file is larger than we expect without attempting
-  // to read past the end of the scan range, but in this case we'll fail below trying to
-  // parse the footer.
-  DCHECK_LE(split_len, FOOTER_SIZE);
-  uint8_t* buffer;
-  bool success = stream_->ReadBytes(split_len, &buffer, &parse_status_);
-  if (!success) {
-    DCHECK(!parse_status_.ok());
-    if (parse_status_.code() == TErrorCode::SCANNER_INCOMPLETE_READ) {
-      VLOG_FILE << "Metadata for file '" << filename() << "' appears stale: "
-                 << "metadata states file size to be "
-                 << PrettyPrinter::Print(file_len, TUnit::BYTES)
-                 << ", but could only read "
-                 << PrettyPrinter::Print(stream_->total_bytes_returned(), TUnit::BYTES);
-      return Status(TErrorCode::STALE_METADATA_FILE_TOO_SHORT, filename(),
-                    scan_node_->hdfs_table()->fully_qualified_name());
-    }
+  unique_ptr<orc::InputStream> input_stream(new ScanRangeInputStream(this));
+  try {
+    reader_ = orc::createReader(move(input_stream), reader_options_);
+  } catch (std::exception& e) {
+    VLOG_QUERY << "Encounter parse error: " << e.what();
+    parse_status_ = Status(Substitute("Encounter parse error: $0.", e.what()));
     return parse_status_;
   }
-  DCHECK(stream_->eosr());
 
-  uint64_t postscript_len;
-  RETURN_IF_ERROR(ParsePostscript(buffer, split_len, &postscript_len));
-
-  uint64_t footer_size = postscript_.footerlength();
-  uint8_t* footer_ptr = buffer + split_len - 1 - postscript_len - footer_size;
-  uint64_t tail_size = 1 + postscript_len + footer_size;
-  // If the metadata was too big, we need to stitch it before deserializing it.
-  // In that case, we stitch the data in this buffer.
-  ScopedBuffer footer_buffer(scan_node_->mem_tracker());
-
-  DCHECK(metadata_range_ != nullptr);
-  VLOG_FILE << "parsing tail of " << filename();
-  if (UNLIKELY(tail_size > split_len)) {
-    // In this case, the footer is bigger than our guess meaning there are
-    // not enough bytes in the footer range from IssueInitialRanges().
-    // We'll just issue more ranges to the IoMgr that is the actual footer.
-    int64_t footer_start = file_len - tail_size;
-    if (footer_start < 0) {
-      return Status(Substitute("File $0 is invalid. Invalid footer size in postscript:"
-          "$1 bytes. Postscript size: $2 bytes. File size: $3 bytes.", filename(),
-          footer_size, postscript_len, file_len));
-    }
-
-    if (!footer_buffer.TryAllocate(footer_size)) {
-      string details = Substitute("Could not allocate buffer of $0 bytes for ORC footer "
-          "for file '$1'.", footer_size, filename());
-      return scan_node_->mem_tracker()->MemLimitExceeded(state_, details, footer_size);
-    }
-    footer_ptr = footer_buffer.buffer();
-    DiskIoMgr* io_mgr = scan_node_->runtime_state()->io_mgr();
-    int64_t partition_id = context_->partition_descriptor()->id();
-
-    ScanRange* footer_range = scan_node_->AllocateScanRange(
-      metadata_range_->fs(), filename(), footer_size, footer_start, partition_id,
-      metadata_range_->disk_id(), metadata_range_->expected_local(),
-      BufferOpts::ReadInto(footer_buffer.buffer(), footer_size));
-
-    unique_ptr<BufferDescriptor> io_buffer;
-    RETURN_IF_ERROR(
-        io_mgr->Read(scan_node_->reader_context(), footer_range, &io_buffer));
-    DCHECK_EQ(io_buffer->buffer(), footer_buffer.buffer());
-    DCHECK_EQ(io_buffer->len(), footer_size);
-    DCHECK(io_buffer->eosr());
-    io_mgr->ReturnBuffer(move(io_buffer));
-  }
-
-  RETURN_IF_ERROR(ParseFooter(footer_ptr, footer_size));
-
-  // Serialized the orc::proto::FileTail object into serialized_file_tail_. orc::reader
-  // can use this string to construct itself, no need to parse the file tail again.
-  SerializeFileTail(postscript_len, file_len);
-
-  RETURN_IF_ERROR(ValidateFileMetadata());
-  // Parse file schema
-  schema_ = orc::convertType(footer_.types(0), footer_);
-
-  if (footer_.numberofrows() == 0) {
+  if (reader_->getNumberOfRows() == 0) {
     // Empty file
     return Status::OK();
   }
 
-  if (footer_.stripes_size() == 0) {
+  if (reader_->getNumberOfStripes() == 0) {
     return Status(Substitute("Invalid file: $0. No stripes in this file but numberOfRows"
-        " in footer is $1", filename(), footer_.numberofrows()));
+        " in footer is $1", filename(), reader_->getNumberOfRows()));
   }
 
-  if (footer_.types_size() == 0) {
-    return Status(Substitute("Invalid file: '$0' has no columns.", filename()));
-  }
-  return Status::OK();
-}
-
-void HdfsOrcScanner::SerializeFileTail(uint64_t postscript_len, uint64_t file_len) {
-  // Setup the orc::proto::FileTail object
-  orc::proto::FileTail file_tail;
-  file_tail.set_postscriptlength(postscript_len);
-  file_tail.set_allocated_postscript(&postscript_);
-  file_tail.set_filelength(file_len);
-  file_tail.set_allocated_footer(&footer_);
-
-  // Save the serialized string of orc::proto::FileTail into serialized_file_tail_.
-  file_tail.SerializeToString(&serialized_file_tail_);
-
-  // Release the Footer and Postscript object to avoid deconstructing them when
-  // deconstruct FileTail
-  file_tail.release_footer();
-  file_tail.release_postscript();
-}
-
-Status HdfsOrcScanner::ParsePostscript(const uint8_t* buffer, uint64_t len,
-    uint64_t* postscript_len) {
-  // The final byte of the file contains the serialized length of the Postscript
-  *postscript_len = *(buffer + len - 1) & 0xff;
-  VLOG_FILE << "postscript length = " << *postscript_len;
-  if (*postscript_len < sizeof(ORC_MAGIC)) {
-    return Status(Substitute("File '$0' is invalid. Invalid postscript length: $1",
-        filename(), postscript_len));
-  }
-
-  // Make sure footer has enough bytes to contain the required information.
-  if (*postscript_len > len) {
-    return Status(Substitute("File '$0' is invalid. Missing postscript.", filename()));
-  }
-
-  const uint8_t* magic_ptr = buffer + len - 1 - sizeof(ORC_MAGIC);
-  if (memcmp(magic_ptr, ORC_MAGIC, sizeof(ORC_MAGIC)) != 0) {
-    return Status(Substitute("ORC data file '$0' has an invalid magic: $1\n"
-        "Make sure the metadata is up to date.", filename(),
-        string(reinterpret_cast<const char*>(magic_ptr), sizeof(ORC_MAGIC))));
-  }
-
-  const uint8_t* postscript_ptr = buffer + len - 1 - *postscript_len;
-  bool success = postscript_.ParseFromArray(
-      postscript_ptr, static_cast<int>(*postscript_len));
-  if (!success) {
-    return Status(Substitute("File '$0' has invalid postscript.", filename()));
-  }
-  return Status::OK();
-}
-
-Status HdfsOrcScanner::ParseFooter(const uint8_t* footer_ptr, uint64_t footer_size) {
-  // We don't known the decompressed footer length until we decompress it. Thus we use
-  // vector here.
-  vector<uint8_t> decompressed_footer_buffer;
-
-  bool isCompressed = (postscript_.has_compression() &&
-      postscript_.compression() != orc::proto::CompressionKind::NONE);
-  if (isCompressed) {
-    // More about the compression: https://orc.apache.org/docs/compression.html
-    RETURN_IF_ERROR(Codec::CreateDecompressor(nullptr, false,
-        TranslateCompressionKind(postscript_.compression()), &decompressor_));
-    uint64_t compression_block_size = postscript_.has_compressionblocksize() ?
-        postscript_.compressionblocksize() : 256 * 1024;
-    vector<uint8_t> reused_buffer(compression_block_size);
-    const uint8_t* footer_end_ptr = footer_ptr + footer_size;
-    footer_size = 0;
-    while (footer_ptr != footer_end_ptr) {
-      // First, decode the compressed chunk's header. Each header is 3 bytes long with
-      // (compressedLength * 2 + isOriginal) stored as a little endian value.
-      int b0 = static_cast<int>(*footer_ptr++);
-      int b1 = static_cast<int>(*footer_ptr++);
-      int b2 = static_cast<int>(*footer_ptr++);
-      bool is_original = (b0 & 0x01) == 1;
-      int chunk_len = (b2 << 15) | (b1 << 7) | (b0 >> 1);
-      if (is_original) {
-        for (int i = 0; i < chunk_len; i++) {
-          decompressed_footer_buffer.push_back(*footer_ptr++);
-        }
-        footer_size += chunk_len;
-        continue;
-      }
-
-      int64_t decompressed_len = compression_block_size;
-      uint8_t* reused_buffer_begin = &reused_buffer[0];
-      RETURN_IF_ERROR(decompressor_->ProcessBlock(true, static_cast<int64_t>(chunk_len),
-          footer_ptr, &decompressed_len, &reused_buffer_begin));
-      DCHECK(decompressed_len <= compression_block_size);
-      VLOG_FILE << "decompressed length: " << decompressed_len;
-      for (int i = 0; i < decompressed_len; i++) {
-        decompressed_footer_buffer.push_back(reused_buffer[i]);
-      }
-
-      footer_ptr += chunk_len;
-      footer_size += decompressed_len;
-    }
-    footer_ptr = &decompressed_footer_buffer[0];
-    DCHECK(decompressed_footer_buffer.size() == footer_size)
-        << "decompressed footer buffer size = " << decompressed_footer_buffer.size()
-        << ", but footer_size = " << footer_size;
-  }
-  VLOG_FILE << "footer size: " << footer_size;
-
-  bool success = footer_.ParseFromArray(footer_ptr, static_cast<int>(footer_size));
-  if (!success) {
-    return Status(Substitute("File $0 has invalid file footer", filename()));
-  }
   return Status::OK();
 }
 
 inline THdfsCompression::type HdfsOrcScanner::TranslateCompressionKind(
-    orc::proto::CompressionKind kind) {
+    orc::CompressionKind kind) {
   switch (kind) {
-    case orc::proto::CompressionKind::NONE:return THdfsCompression::NONE;
-    case orc::proto::CompressionKind::ZLIB: return THdfsCompression::DEFLATE;
-    case orc::proto::CompressionKind::SNAPPY: return THdfsCompression::SNAPPY;
-    case orc::proto::CompressionKind::LZO: return THdfsCompression::LZO;
-    case orc::proto::CompressionKind::LZ4: return THdfsCompression::LZ4;
-    case orc::proto::CompressionKind::ZSTD:
-      VLOG_QUERY << "Unsupported compression kind: ZSTD";
-      break;
-    default:
-      VLOG_QUERY << "Unknown compression kind of orc::proto::CompressionKind: " << kind;
+    case orc::CompressionKind::CompressionKind_NONE:return THdfsCompression::NONE;
+    // zlib used in ORC is corresponding to Deflate used in Impala
+    case orc::CompressionKind::CompressionKind_ZLIB: return THdfsCompression::DEFLATE;
+    case orc::CompressionKind::CompressionKind_SNAPPY: return THdfsCompression::SNAPPY;
+    case orc::CompressionKind::CompressionKind_LZO: return THdfsCompression::LZO;
+    case orc::CompressionKind::CompressionKind_LZ4: return THdfsCompression::LZ4;
+    case orc::CompressionKind::CompressionKind_ZSTD: return THdfsCompression::ZSTD;
   }
   return THdfsCompression::DEFAULT;
-}
-
-Status HdfsOrcScanner::ValidateFileMetadata() {
-  // TODO
-  return Status::OK();
 }
 
 Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
@@ -752,7 +539,7 @@ Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
           parse_status_ = Status::CANCELLED;
         } else {
           VLOG_QUERY << "Encounter parse error: " << e.what();
-          parse_status_ = Status(Substitute("Encounter parse error: $1.", e.what()));
+          parse_status_ = Status(Substitute("Encounter parse error: $0.", e.what()));
         }
         eos_ = true;
         return parse_status_;
@@ -1021,8 +808,9 @@ void HdfsOrcScanner::Close(RowBatch* row_batch) {
   assemble_rows_timer_.ReleaseCounter();
 
   THdfsCompression::type compression_type = THdfsCompression::NONE;
-  if (postscript_.has_compression()) {
-    compression_type = TranslateCompressionKind(postscript_.compression());
+  if (reader_ != nullptr &&
+      reader_->getCompression() != orc::CompressionKind::CompressionKind_NONE) {
+    compression_type = TranslateCompressionKind(reader_->getCompression());
   }
   scan_node_->RangeComplete(THdfsFileFormat::ORC, compression_type);
 

@@ -74,7 +74,9 @@ enum THdfsCompression {
   SNAPPY_BLOCKED,
   LZO,
   LZ4,
-  ZLIB
+  ZLIB,
+  // ZSTD only used in orc scanner currently
+  ZSTD
 }
 
 enum TColumnEncoding {

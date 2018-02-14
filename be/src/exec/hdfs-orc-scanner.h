@@ -94,12 +94,6 @@ class HdfsOrcScanner : public HdfsScanner {
   virtual Status ProcessSplit() WARN_UNUSED_RESULT;
   virtual void Close(RowBatch* row_batch);
 
-  orc::proto::PostScript getPostscript() { return postscript_; }
-  orc::proto::Footer getFooter() { return footer_; }
-
-  Status ParsePostscript(const uint8_t *data, uint64_t size, uint64_t *postscript_len);
-  Status ParseFooter(const uint8_t *footer_ptr, uint64_t footer_size);
-
  private:
   friend class HdfsOrcScannerTest;
 
@@ -110,17 +104,17 @@ class HdfsOrcScanner : public HdfsScanner {
   /// Index of the current stripe being processed. Initialized to -1 which indicates
   /// that we have not started processing the first stripe yet (GetNext() has not yet
   /// been called).
-  int32_t stripe_idx_;
+  int32_t stripe_idx_ = -1;
 
   /// Counts the number of rows processed for the current stripe.
-  int64_t stripe_rows_read_;
+  int64_t stripe_rows_read_ = 0;
 
   /// Indicates whether we should advance to the next stripe in the next GetNext().
   /// Starts out as true to move to the very first stripe.
-  bool advance_stripe_;
+  bool advance_stripe_ = true;
 
   /// Indicates whether we are at the end of a stripe.
-  bool end_of_stripe_;
+  bool end_of_stripe_ = true;
 
   /// Cached runtime filter contexts, one for each filter that applies to this column.
   vector<const FilterContext *> filter_ctxs_;
@@ -152,7 +146,7 @@ class HdfsOrcScanner : public HdfsScanner {
   vector<LocalFilterStats> filter_stats_;
 
   /// Number of scratch batches processed so far.
-  int64_t row_batches_produced_;
+  int64_t row_batches_produced_ = 0;
 
   /// Mem pool used in orc readers.
   boost::scoped_ptr<OrcMemPool> reader_mem_pool_;
@@ -160,24 +154,13 @@ class HdfsOrcScanner : public HdfsScanner {
   /// orc::Reader's responsibility is to read the footer and metadata from an ORC file.
   /// It creates orc::RowReader for further materialization. orc::RowReader is used for
   /// reading rows from the file.
-  std::unique_ptr<orc::Reader> reader_;
-  std::unique_ptr<orc::RowReader> row_reader_;
+  std::unique_ptr<orc::Reader> reader_ = nullptr;
+  std::unique_ptr<orc::RowReader> row_reader_ = nullptr;
 
   /// Orc reader will write slot values into this scratch batch for top-level tuples.
   /// See AssembleRows().
   std::unique_ptr<orc::ColumnVectorBatch> scratch_batch_;
-  int scratch_batch_tuple_idx_;
-
-  /// File metadata protobuf object.
-  orc::proto::PostScript postscript_;
-  orc::proto::Footer footer_;
-
-  /// Serialized string of orc::proto::FileTail. Used in create orc::reader to avoid
-  /// parsing file tail again.
-  std::string serialized_file_tail_;
-
-  /// The root schema node for this file.
-  std::unique_ptr<orc::Type> schema_;
+  int scratch_batch_tuple_idx_ = 0;
 
   /// ReaderOptions used to create orc::Reader.
   orc::ReaderOptions reader_options_;
@@ -190,26 +173,26 @@ class HdfsOrcScanner : public HdfsScanner {
   std::map<int, const SlotDescriptor*> col_id_slot_map_;
 
   /// Scan range for the metadata.
-  const io::ScanRange *metadata_range_;
+  const io::ScanRange* metadata_range_ = nullptr;
 
   /// Timer for materializing rows. This ignores time getting the next buffer.
   ScopedTimer<MonotonicStopWatch> assemble_rows_timer_;
 
   /// Average and min/max time spent processing the footer by each split.
-  RuntimeProfile::SummaryStatsCounter* process_footer_timer_stats_;
+  RuntimeProfile::SummaryStatsCounter* process_footer_timer_stats_ = nullptr;
 
   /// Number of columns that need to be read.
-  RuntimeProfile::Counter *num_cols_counter_;
+  RuntimeProfile::Counter* num_cols_counter_ = nullptr;
 
   /// Number of stripes that are skipped because of ORC stripe statistics.
-  RuntimeProfile::Counter* num_stats_filtered_stripes_counter_;
+  RuntimeProfile::Counter* num_stats_filtered_stripes_counter_ = nullptr;
 
   /// Number of stripes that need to be read.
-  RuntimeProfile::Counter *num_stripes_counter_;
+  RuntimeProfile::Counter* num_stripes_counter_ = nullptr;
 
   /// Number of scanners that end up doing no reads because their splits don't overlap
   /// with the midpoint of any stripe in the file.
-  RuntimeProfile::Counter* num_scanners_with_no_reads_counter_;
+  RuntimeProfile::Counter* num_scanners_with_no_reads_counter_ = nullptr;
 
   const char *filename() const { return metadata_range_->file(); }
 
@@ -265,27 +248,18 @@ class HdfsOrcScanner : public HdfsScanner {
   /// last FOOTER_SIZE bytes in context_.
   Status ProcessFileTail();
 
-  /// Save the serialized string of orc::proto::FileTail into serialized_file_tail_.
-  /// serialized_file_tail_ will be used in creating orc::reader later.
-  void SerializeFileTail(uint64_t postscript_len, uint64_t file_len);
-
   /// Update reader options used in orc reader by the given tuple descriptor.
-  void UpdateReaderOptions(const TupleDescriptor *tuple_desc, OrcMemPool &mem_pool);
-
-  /// Validates the file metadata
-  Status ValidateFileMetadata();
+  void SelectColumns(const TupleDescriptor *tuple_desc);
 
   /// Part of the HdfsScanner interface, not used in Orc.
   Status InitNewRange() { return Status::OK(); };
 
-  inline THdfsCompression::type TranslateCompressionKind(::orc::proto::CompressionKind kind);
+  inline THdfsCompression::type TranslateCompressionKind(orc::CompressionKind kind);
 
   inline bool ScratchBatchNotEmpty();
 
   inline Status AllocateTupleMem(RowBatch* row_batch);
 
-  /// Unit test constructor
-  HdfsOrcScanner();
 };
 
 } // namespace impala
