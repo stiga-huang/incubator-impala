@@ -239,7 +239,6 @@ if (DOXYGEN_FOUND)
     ${CMAKE_SOURCE_DIR}/be/src/common/
     ${CMAKE_SOURCE_DIR}/be/src/exec/
     ${CMAKE_SOURCE_DIR}/be/src/exprs/
-    ${CMAKE_SOURCE_DIR}/be/src/orc/
     ${CMAKE_SOURCE_DIR}/be/src/runtime/
     ${CMAKE_SOURCE_DIR}/be/src/scheduling/
     ${CMAKE_SOURCE_DIR}/be/src/service/
@@ -284,6 +283,7 @@ set(CLANG_INCLUDE_FLAGS
   "-I${GFLAGS_INCLUDE_DIR}"
   "-I${RAPIDJSON_INCLUDE_DIR}"
   "-I${AVRO_INCLUDE_DIR}"
+  "-I${ORC_INCLUDE_DIR}"
   # Include Boost as a system directory to suppress warnings from headers.
   "-isystem${BOOST_INCLUDEDIR}"
   # Required so that jni.h can be found during Clang compilation
@@ -366,7 +366,6 @@ set (IMPALA_LINK_LIBS
   Io
   kudu_util
   krpc
-  Orc
   Rpc
   rpc_header_proto
   rpc_introspection_proto
@@ -395,7 +394,6 @@ if (BUILD_SHARED_LIBS)
     Exec
     CodeGen
     Exprs
-    Orc
     Rpc
     Service
     security
@@ -434,6 +432,7 @@ set (IMPALA_DEPENDENCIES
   zlib
   bzip2
   avro
+  orc
   java_jvm
   kudu_client)
 
@@ -538,7 +537,6 @@ add_subdirectory(src/exprs)
 add_subdirectory(src/kudu/security)
 add_subdirectory(src/kudu/rpc)
 add_subdirectory(src/kudu/util)
-add_subdirectory(src/orc)
 add_subdirectory(src/runtime)
 add_subdirectory(src/scheduling)
 add_subdirectory(src/statestore)
