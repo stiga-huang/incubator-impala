@@ -55,11 +55,11 @@ enum TTableType {
 enum THdfsFileFormat {
   TEXT,
   RC_FILE,
-  ORC,
   SEQUENCE_FILE,
   AVRO,
   PARQUET,
-  KUDU
+  KUDU,
+  ORC
 }
 
 // TODO: Since compression is also enabled for Kudu columns, we should
