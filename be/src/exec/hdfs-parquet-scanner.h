@@ -391,40 +391,10 @@ class HdfsParquetScanner : public HdfsScanner {
   /// the scanner. Stored in 'obj_pool_'.
   vector<ScalarExprEvaluator*> min_max_conjunct_evals_;
 
-  /// Cached runtime filter contexts, one for each filter that applies to this column,
-  /// owned by instances of this class.
-  vector<const FilterContext*> filter_ctxs_;
-
-  struct LocalFilterStats {
-    /// Total number of rows to which each filter was applied
-    int64_t considered;
-
-    /// Total number of rows that each filter rejected.
-    int64_t rejected;
-
-    /// Total number of rows that each filter could have been applied to (if it were
-    /// available from row 0).
-    int64_t total_possible;
-
-    /// Use known-width type to act as logical boolean.  Set to 1 if corresponding filter
-    /// in filter_ctxs_ should be applied, 0 if it was ineffective and was disabled.
-    uint8_t enabled;
-
-    /// Padding to ensure structs do not straddle cache-line boundary.
-    uint8_t padding[7];
-
-    LocalFilterStats() : considered(0), rejected(0), total_possible(0), enabled(1) { }
-  };
-
   /// Pool used for allocating caches of definition/repetition levels and tuples for
   /// dictionary filtering. The definition/repetition levels are populated by the
   /// level readers. The pool is freed in Close().
   boost::scoped_ptr<MemPool> perm_pool_;
-
-  /// Track statistics of each filter (one for each filter in filter_ctxs_) per scanner so
-  /// that expensive aggregation up to the scan node can be performed once, during
-  /// Close().
-  vector<LocalFilterStats> filter_stats_;
 
   /// Number of scratch batches processed so far.
   int64_t row_batches_produced_;
@@ -510,10 +480,6 @@ class HdfsParquetScanner : public HdfsScanner {
   /// skipped, 'false' otherwise.
   Status EvaluateStatsConjuncts(const parquet::FileMetaData& file_metadata,
       const parquet::RowGroup& row_group, bool* skip_row_group) WARN_UNUSED_RESULT;
-
-  /// Check runtime filters' effectiveness every BATCHES_PER_FILTER_SELECTIVITY_CHECK
-  /// row batches. Will update 'filter_stats_'.
-  void CheckFiltersEffectiveness();
 
   /// Advances 'row_group_idx_' to the next non-empty row group and initializes
   /// the column readers to scan it. Recoverable errors are logged to the runtime

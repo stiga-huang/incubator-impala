@@ -34,15 +34,6 @@
 using namespace impala;
 using namespace impala::io;
 
-DEFINE_double(orc_min_filter_reject_ratio, 0.1, "(Advanced) If the percentage of "
-    "rows rejected by a runtime filter drops below this value, the filter is disabled.");
-
-// The number of row batches between checks to see if a filter is effective, and
-// should be disabled. Must be a power of two.
-constexpr int BATCHES_PER_FILTER_SELECTIVITY_CHECK = 16;
-static_assert(BitUtil::IsPowerOf2(BATCHES_PER_FILTER_SELECTIVITY_CHECK),
-    "BATCHES_PER_FILTER_SELECTIVITY_CHECK must be a power of two");
-
 const int64_t HdfsOrcScanner::FOOTER_SIZE = 100 * 1024;
 
 Status HdfsOrcScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
@@ -216,8 +207,6 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
   metadata_range_ = stream_->scan_range();
   num_cols_counter_ =
       ADD_COUNTER(scan_node_->runtime_profile(), "NumColumns", TUnit::UNIT);
-  num_stats_filtered_stripes_counter_ =
-      ADD_COUNTER(scan_node_->runtime_profile(), "NumStatsFilteredStripes", TUnit::UNIT);
   num_stripes_counter_ =
       ADD_COUNTER(scan_node_->runtime_profile(), "NumStripes", TUnit::UNIT);
   num_scanners_with_no_reads_counter_ =
@@ -341,7 +330,7 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
     int max_tuples = min<int64_t>(row_batch->capacity(), rows_remaining);
     TupleRow* current_row = row_batch->GetRow(row_batch->AddRow());
     int num_to_commit = WriteTemplateTuples(current_row, max_tuples);
-    Status status = CommitRows(row_batch, num_to_commit);
+    Status status = CommitRows(num_to_commit, row_batch);
     assemble_rows_timer_.Stop();
     RETURN_IF_ERROR(status);
     stripe_rows_read_ += max_tuples;
@@ -357,7 +346,7 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
     assemble_rows_timer_.Start();
     int num_row_to_commit = TransferScratchTuples(row_batch);
     assemble_rows_timer_.Stop();
-    RETURN_IF_ERROR(CommitRows(row_batch, num_row_to_commit));
+    RETURN_IF_ERROR(CommitRows(num_row_to_commit, row_batch));
     if (row_batch->AtCapacity()) return Status::OK();
     DCHECK_EQ(scratch_batch_tuple_idx_, scratch_batch_->numElements);
   }
@@ -365,7 +354,7 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
   while (advance_stripe_ || end_of_stripe_) {
     context_->ReleaseCompletedResources(/* done */ true);
     // Commit the rows to flush the row batch from the previous stripe
-    RETURN_IF_ERROR(CommitRows(row_batch, 0));
+    RETURN_IF_ERROR(CommitRows(0, row_batch));
 
     RETURN_IF_ERROR(NextStripe());
     DCHECK_LE(stripe_idx_, reader_->getNumberOfStripes());
@@ -395,18 +384,6 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
   }
 
   return Status::OK();
-}
-
-void HdfsOrcScanner::CheckFiltersEffectiveness() {
-  for (int i = 0; i < filter_stats_.size(); ++i) {
-    LocalFilterStats* stats = &filter_stats_[i];
-    const RuntimeFilter* filter = filter_ctxs_[i]->filter;
-    double reject_ratio = stats->rejected / static_cast<double>(stats->considered);
-    if (filter->AlwaysTrue() ||
-        reject_ratio < FLAGS_orc_min_filter_reject_ratio) {
-      stats->enabled = 0;
-    }
-  }
 }
 
 inline bool HdfsOrcScanner::ScratchBatchNotEmpty() {
@@ -514,7 +491,8 @@ inline THdfsCompression::type HdfsOrcScanner::TranslateCompressionKind(
     case orc::CompressionKind::CompressionKind_SNAPPY: return THdfsCompression::SNAPPY;
     case orc::CompressionKind::CompressionKind_LZO: return THdfsCompression::LZO;
     case orc::CompressionKind::CompressionKind_LZ4: return THdfsCompression::LZ4;
-    case orc::CompressionKind::CompressionKind_ZSTD: return THdfsCompression::ZSTD;
+    default:
+      VLOG_QUERY << "Unknown compression kind of orc::CompressionKind: " << kind;
   }
   return THdfsCompression::DEFAULT;
 }
@@ -548,7 +526,7 @@ Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
         return parse_status_;
       }
       if (scratch_batch_->numElements == 0) {
-        RETURN_IF_ERROR(CommitRows(row_batch, 0));
+        RETURN_IF_ERROR(CommitRows(0, row_batch));
         end_of_stripe_ = true;
         return Status::OK();
       }
@@ -557,7 +535,7 @@ Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
     }
 
     int num_to_commit = TransferScratchTuples(row_batch);
-    RETURN_IF_ERROR(CommitRows(row_batch, num_to_commit));
+    RETURN_IF_ERROR(CommitRows(num_to_commit, row_batch));
     if (row_batch->AtCapacity()) break;
     continue_execution &= !scan_node_->ReachedLimit() && !context_->cancelled();
   }
@@ -608,7 +586,7 @@ Status HdfsOrcScanner::AllocateTupleMem(RowBatch* row_batch) {
   return Status::OK();
 }
 
-Status HdfsOrcScanner::CommitRows(RowBatch* dst_batch, int num_rows) {
+Status HdfsOrcScanner::CommitRows(int num_rows, RowBatch* dst_batch) {
   DCHECK(dst_batch != nullptr);
   dst_batch->CommitRows(num_rows);
   tuple_mem_ += static_cast<int64_t>(scan_node_->tuple_desc()->byte_size()) * num_rows;

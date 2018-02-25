@@ -19,23 +19,21 @@
 #ifndef IMPALA_EXEC_HDFS_ORC_SCANNER_H
 #define IMPALA_EXEC_HDFS_ORC_SCANNER_H
 
+#include <orc/OrcFile.hh>
+
 #include "runtime/runtime-state.h"
 #include "exec/hdfs-scanner.h"
 #include "exec/hdfs-scan-node.h"
-#include "orc/OrcFile.hh"
 #include "util/runtime-profile-counters.h"
 
 namespace impala {
 
-class CollectionValueBuilder;
 struct HdfsFileDesc;
 
-const uint8_t ORC_MAGIC[3] = {'O', 'R', 'C'};
-
-/// This scanner parses ORC files located in HDFS, and writes the content as tuples in
-/// the Impala in-memory representation of data, e.g.  (tuples, rows, row batches).
-/// For the file format spec, see:
-/// https://cwiki.apache.org/confluence/display/Hive/LanguageManual+ORC
+/// This scanner leverage the ORC library to parse ORC files located in HDFS. Data is
+/// transformed into Impala in-memory representation, i.e. Tuples, RowBatches.
+///
+/// For the file format spec, see https://orc.apache.org/docs/spec-intro.html
 class HdfsOrcScanner : public HdfsScanner {
  public:
   class OrcMemPool : public orc::MemoryPool {
@@ -56,11 +54,9 @@ class HdfsOrcScanner : public HdfsScanner {
    public:
     ScanRangeInputStream(HdfsOrcScanner *scanner) {
       this->scanner_ = scanner;
-      if (scanner != NULL) {  // NULL for unit test
-        this->filename_ = scanner->filename();
-        this->file_desc_ = scanner->scan_node_->GetFileDesc(
-            scanner->context_->partition_descriptor()->id(), filename_);
-      }
+      this->filename_ = scanner->filename();
+      this->file_desc_ = scanner->scan_node_->GetFileDesc(
+          scanner->context_->partition_descriptor()->id(), filename_);
     }
 
     uint64_t getLength() const {
@@ -118,35 +114,6 @@ class HdfsOrcScanner : public HdfsScanner {
   /// Indicates whether we are at the end of a stripe.
   bool end_of_stripe_ = true;
 
-  /// Cached runtime filter contexts, one for each filter that applies to this column.
-  vector<const FilterContext *> filter_ctxs_;
-
-  struct LocalFilterStats {
-    /// Total number of rows to which each filter was applied
-    int64_t considered;
-
-    /// Total number of rows that each filter rejected.
-    int64_t rejected;
-
-    /// Total number of rows that each filter could have been applied to (if it were
-    /// available from row 0).
-    int64_t total_possible;
-
-    /// Use known-width type to act as logical boolean.  Set to 1 if corresponding filter
-    /// in filter_ctxs_ should be applied, 0 if it was ineffective and was disabled.
-    uint8_t enabled;
-
-    /// Padding to ensure structs do not straddle cache-line boundary.
-    uint8_t padding[7];
-
-    LocalFilterStats() : considered(0), rejected(0), total_possible(0), enabled(1) {}
-  };
-
-  /// Track statistics of each filter (one for each filter in filter_ctxs_) per scanner so
-  /// that expensive aggregation up to the scan node can be performed once, during
-  /// Close().
-  vector<LocalFilterStats> filter_stats_;
-
   /// Number of scratch batches processed so far.
   int64_t row_batches_produced_ = 0;
 
@@ -186,9 +153,6 @@ class HdfsOrcScanner : public HdfsScanner {
   /// Number of columns that need to be read.
   RuntimeProfile::Counter* num_cols_counter_ = nullptr;
 
-  /// Number of stripes that are skipped because of ORC stripe statistics.
-  RuntimeProfile::Counter* num_stats_filtered_stripes_counter_ = nullptr;
-
   /// Number of stripes that need to be read.
   RuntimeProfile::Counter* num_stripes_counter_ = nullptr;
 
@@ -200,15 +164,8 @@ class HdfsOrcScanner : public HdfsScanner {
 
   virtual Status GetNextInternal(RowBatch* row_batch) WARN_UNUSED_RESULT;
 
-  /// Check runtime filters' effectiveness every BATCHES_PER_FILTER_SELECTIVITY_CHECK
-  /// row batches. Will update 'filter_stats_'.
-  void CheckFiltersEffectiveness();
-
   /// Advances 'stripe_idx_' to the next non-empty stripe and initializes
-  /// the column readers to scan it. Recoverable errors are logged to the runtime
-  /// state. Only returns a non-OK status if a non-recoverable error is encountered
-  /// (or abort_on_error is true). If OK is returned, 'parse_status_' is guaranteed
-  /// to be OK as well.
+  /// row_reader_ to scan it.
   Status NextStripe() WARN_UNUSED_RESULT;
 
   /// Reads data using orc-reader to materialize instances of 'tuple_desc'.
@@ -225,7 +182,7 @@ class HdfsOrcScanner : public HdfsScanner {
   /// Returns OK if the query is not cancelled and hasn't exceeded any mem limits.
   /// Scanner can call this with 0 rows to flush any pending resources (attached pools
   /// and io buffers) to minimize memory consumption.
-  Status CommitRows(RowBatch* dst_batch, int num_rows) WARN_UNUSED_RESULT;
+  Status CommitRows(int num_rows, RowBatch* dst_batch) WARN_UNUSED_RESULT;
 
   /// Evaluates runtime filters and conjuncts (if any) against the tuples in
   /// 'scratch_batch_', and adds the surviving tuples to the given batch.

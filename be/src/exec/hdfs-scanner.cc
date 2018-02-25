@@ -37,6 +37,9 @@
 using namespace impala;
 using namespace strings;
 
+DEFINE_double(min_filter_reject_ratio, 0.1, "(Advanced) If the percentage of "
+    "rows rejected by a runtime filter drops below this value, the filter is disabled.");
+
 const char* FieldLocation::LLVM_CLASS_NAME = "struct.impala::FieldLocation";
 const char* HdfsScanner::LLVM_CLASS_NAME = "class.impala::HdfsScanner";
 
@@ -680,5 +683,17 @@ void HdfsScanner::ReportColumnParseError(const SlotDescriptor* desc,
     }
 
     if (state_->abort_on_error() && parse_status_.ok()) parse_status_ = Status(ss.str());
+  }
+}
+
+void HdfsScanner::CheckFiltersEffectiveness() {
+  for (int i = 0; i < filter_stats_.size(); ++i) {
+    LocalFilterStats* stats = &filter_stats_[i];
+    const RuntimeFilter* filter = filter_ctxs_[i]->filter;
+    double reject_ratio = stats->rejected / static_cast<double>(stats->considered);
+    if (filter->AlwaysTrue() ||
+        reject_ratio < FLAGS_min_filter_reject_ratio) {
+      stats->enabled = 0;
+    }
   }
 }

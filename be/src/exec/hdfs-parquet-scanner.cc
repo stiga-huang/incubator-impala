@@ -38,15 +38,6 @@ using std::move;
 using namespace impala;
 using namespace impala::io;
 
-DEFINE_double(parquet_min_filter_reject_ratio, 0.1, "(Advanced) If the percentage of "
-    "rows rejected by a runtime filter drops below this value, the filter is disabled.");
-
-// The number of row batches between checks to see if a filter is effective, and
-// should be disabled. Must be a power of two.
-constexpr int BATCHES_PER_FILTER_SELECTIVITY_CHECK = 16;
-static_assert(BitUtil::IsPowerOf2(BATCHES_PER_FILTER_SELECTIVITY_CHECK),
-    "BATCHES_PER_FILTER_SELECTIVITY_CHECK must be a power of two");
-
 // Max dictionary page header size in bytes. This is an estimate and only needs to be an
 // upper bound.
 const int MAX_DICT_HEADER_SIZE = 100;
@@ -377,18 +368,6 @@ int HdfsParquetScanner::CountScalarColumns(const vector<ParquetColumnReader*>& c
     ++num_columns;
   }
   return num_columns;
-}
-
-void HdfsParquetScanner::CheckFiltersEffectiveness() {
-  for (int i = 0; i < filter_stats_.size(); ++i) {
-    LocalFilterStats* stats = &filter_stats_[i];
-    const RuntimeFilter* filter = filter_ctxs_[i]->filter;
-    double reject_ratio = stats->rejected / static_cast<double>(stats->considered);
-    if (filter->AlwaysTrue() ||
-        reject_ratio < FLAGS_parquet_min_filter_reject_ratio) {
-      stats->enabled = 0;
-    }
-  }
 }
 
 Status HdfsParquetScanner::ProcessSplit() {
