@@ -20,7 +20,6 @@
 #define IMPALA_EXEC_HDFS_PARQUET_SCANNER_H
 
 #include "codegen/impala-ir.h"
-#include "common/global-flags.h"
 #include "exec/hdfs-scanner.h"
 #include "exec/parquet-common.h"
 #include "exec/parquet-scratch-tuple-batch.h"
@@ -359,14 +358,6 @@ class HdfsParquetScanner : public HdfsScanner {
   friend class ScalarColumnReader;
   friend class BoolColumnReader;
 
-  /// Size of the file footer.  This is a guess.  If this value is too little, we will
-  /// need to issue another read.
-  static const int64_t FOOTER_SIZE = 1024 * 100;
-  static_assert(FOOTER_SIZE <= READ_SIZE_MIN_VALUE,
-      "FOOTER_SIZE can not be greater than READ_SIZE_MIN_VALUE.\n"
-      "You can increase FOOTER_SIZE if you want, "
-      "just don't forget to increase READ_SIZE_MIN_VALUE as well.");
-
   /// Class name in LLVM IR.
   static const char* LLVM_CLASS_NAME;
 
@@ -557,10 +548,6 @@ class HdfsParquetScanner : public HdfsScanner {
   /// and does not read any data values.
   inline bool ReadCollectionItem(const std::vector<ParquetColumnReader*>& column_readers,
       bool materialize_tuple, MemPool* pool, Tuple* tuple) const;
-
-  /// Find and return the last split in the file if it is assigned to this scan node.
-  /// Returns NULL otherwise.
-  static io::ScanRange* FindFooterSplit(HdfsFileDesc* file);
 
   /// Process the file footer and parse file_metadata_.  This should be called with the
   /// last FOOTER_SIZE bytes in context_.

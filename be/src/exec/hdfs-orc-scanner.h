@@ -95,10 +95,6 @@ class HdfsOrcScanner : public HdfsScanner {
  private:
   friend class HdfsOrcScannerTest;
 
-  /// Size of the file footer.  This is a guess. If this value is too little, we will
-  /// need to issue another read.
-  static const int64_t FOOTER_SIZE;
-
   /// Index of the current stripe being processed. Initialized to -1 which indicates
   /// that we have not started processing the first stripe yet (GetNext() has not yet
   /// been called).
@@ -198,10 +194,6 @@ class HdfsOrcScanner : public HdfsScanner {
   /// whether the filters are effective, and disables them if they are not. This is
   /// replaced by generated code at runtime.
   bool EvalRuntimeFilters(TupleRow* row);
-
-  /// Find and return the last split in the file if it is assigned to this scan node.
-  /// Returns NULL otherwise.
-  static io::ScanRange *FindFooterSplit(HdfsFileDesc *file);
 
   /// Process the file footer and parse file_metadata_.  This should be called with the
   /// last FOOTER_SIZE bytes in context_.

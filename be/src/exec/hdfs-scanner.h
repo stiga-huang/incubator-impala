@@ -25,6 +25,7 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "codegen/impala-ir.h"
+#include "common/global-flags.h"
 #include "common/object-pool.h"
 #include "common/status.h"
 #include "exec/hdfs-scan-node-base.h"
@@ -322,9 +323,27 @@ class HdfsScanner {
   /// Close().
   vector<LocalFilterStats> filter_stats_;
 
+  /// Size of the file footer.  This is a guess.  If this value is too little, we will
+  /// need to issue another read.
+  static const int64_t FOOTER_SIZE = 1024 * 100;
+  static_assert(FOOTER_SIZE <= READ_SIZE_MIN_VALUE,
+      "FOOTER_SIZE can not be greater than READ_SIZE_MIN_VALUE.\n"
+      "You can increase FOOTER_SIZE if you want, "
+      "just don't forget to increase READ_SIZE_MIN_VALUE as well.");
+
   /// Check runtime filters' effectiveness every BATCHES_PER_FILTER_SELECTIVITY_CHECK
   /// row batches. Will update 'filter_stats_'.
   void CheckFiltersEffectiveness();
+
+  /// Find and return the last split in the file if it is assigned to this scan node.
+  /// Returns NULL otherwise.
+  static io::ScanRange* FindFooterSplit(HdfsFileDesc* file);
+
+  /// Issue just the footer range for each file. This function is only used in parquet
+  /// and orc scanners. We'll then parse the footer and pick out the columns we want.
+  static Status IssueFooterRanges(HdfsScanNodeBase* scan_node,
+      const THdfsFileFormat::type& file_type, const std::vector<HdfsFileDesc*>& files)
+      WARN_UNUSED_RESULT;
 
   /// Implements GetNext(). Should be overridden by subclasses.
   /// Only valid to call if the parent scan node is multi-threaded.
