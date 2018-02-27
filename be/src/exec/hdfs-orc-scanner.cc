@@ -36,11 +36,11 @@ using namespace impala::io;
 
 Status HdfsOrcScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
     const std::vector<HdfsFileDesc*> &files) {
-  for (int i = 0; i < files.size(); ++i) {
+  for (HdfsFileDesc* file : files) {
     // If the file size is less than 10 bytes, it is an invalid ORC file.
-    if (files[i]->file_length < 10) {
+    if (file->file_length < 10) {
       return Status(Substitute("ORC file $0 has an invalid file length: $1",
-                               files[i]->filename, files[i]->file_length));
+          file->filename, file->file_length));
     }
   }
   return IssueFooterRanges(scan_node, THdfsFileFormat::ORC, files);
@@ -157,10 +157,9 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
 
   scan_node_->IncNumScannersCodegenDisabled();
 
-  for (int i = 0; i < context->filter_ctxs().size(); ++i) {
-    const FilterContext* ctx = &context->filter_ctxs()[i];
-    DCHECK(ctx->filter != nullptr);
-    filter_ctxs_.push_back(ctx);
+  for (const FilterContext& ctx : context->filter_ctxs()) {
+    DCHECK(ctx.filter != nullptr);
+    filter_ctxs_.push_back(&ctx);
   }
   filter_stats_.resize(filter_ctxs_.size());
 
@@ -194,6 +193,64 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
   return Status::OK();
 }
 
+void HdfsOrcScanner::Close(RowBatch* row_batch) {
+  DCHECK(!is_closed_);
+  if (row_batch != nullptr) {
+    context_->ReleaseCompletedResources(true);
+    row_batch->tuple_data_pool()->AcquireData(template_tuple_pool_.get(), false);
+    if (scan_node_->HasRowBatchQueue()) {
+      static_cast<HdfsScanNode*>(scan_node_)->AddMaterializedRowBatch(
+          unique_ptr<RowBatch>(row_batch));
+    }
+  } else {
+    template_tuple_pool_->FreeAll();
+    context_->ReleaseCompletedResources(true);
+  }
+  scratch_batch_.reset(NULL);
+
+  // Verify all resources (if any) have been transferred.
+  DCHECK_EQ(template_tuple_pool_->total_allocated_bytes(), 0);
+
+  assemble_rows_timer_.Stop();
+  assemble_rows_timer_.ReleaseCounter();
+
+  THdfsCompression::type compression_type = THdfsCompression::NONE;
+  if (reader_ != nullptr &&
+      reader_->getCompression() != orc::CompressionKind::CompressionKind_NONE) {
+    compression_type = TranslateCompressionKind(reader_->getCompression());
+  }
+  scan_node_->RangeComplete(THdfsFileFormat::ORC, compression_type);
+
+  for (int i = 0; i < filter_ctxs_.size(); ++i) {
+    const FilterStats* stats = filter_ctxs_[i]->stats;
+    const LocalFilterStats& local = filter_stats_[i];
+    stats->IncrCounters(FilterStats::ROWS_KEY, local.total_possible,
+                        local.considered, local.rejected);
+  }
+
+  CloseInternal();
+}
+
+inline THdfsCompression::type HdfsOrcScanner::TranslateCompressionKind(
+    orc::CompressionKind kind) {
+  switch (kind) {
+    case orc::CompressionKind::CompressionKind_NONE:return THdfsCompression::NONE;
+      // zlib used in ORC is corresponding to Deflate used in Impala
+    case orc::CompressionKind::CompressionKind_ZLIB: return THdfsCompression::DEFLATE;
+    case orc::CompressionKind::CompressionKind_SNAPPY: return THdfsCompression::SNAPPY;
+    case orc::CompressionKind::CompressionKind_LZO: return THdfsCompression::LZO;
+    case orc::CompressionKind::CompressionKind_LZ4: return THdfsCompression::LZ4;
+    case orc::CompressionKind::CompressionKind_ZSTD:
+      // TODO if we add ZSTD in THdfsCompression just for this, make sure it won't break
+      // other codes using decompressors
+      VLOG_QUERY << "ORC files in ZSTD compression are counted as DEFAULT in profile";
+      break;
+    default:
+      VLOG_QUERY << "Unknown compression kind of orc::CompressionKind: " << kind;
+  }
+  return THdfsCompression::DEFAULT;
+}
+
 void HdfsOrcScanner::SelectColumns(const TupleDescriptor *tuple_desc) {
   list<uint64_t> selected_indices;
   int num_columns = 0;
@@ -220,18 +277,10 @@ void HdfsOrcScanner::SelectColumns(const TupleDescriptor *tuple_desc) {
     selected_indices.push_back(col_idx_in_file);
     col_id_slot_map_[reader_->getType().getSubtype(col_idx_in_file)->getColumnId()] = slot_desc;
     const ColumnType &col_type = scan_node_->hdfs_table()->col_descs()[col_idx].type();
-    if (col_type.type == TYPE_ARRAY) {
-      // TODO
-    } else if (col_type.type == TYPE_MAP) {
-      // TODO
-    } else if (col_type.type == TYPE_STRUCT) {
-      // TODO
-    } else {
-      DCHECK(!col_type.IsComplexType());
-      DCHECK_EQ(path.size(), 1);
-      // TODO
-      ++num_columns;
-    }
+    // TODO(IMPALA-6503): Support reading complex types from ORC format files
+    DCHECK(!col_type.IsComplexType()) << "Complex types in ORC files are not supported yet";
+    DCHECK_EQ(path.size(), 1);
+    ++num_columns;
   }
   COUNTER_SET(num_cols_counter_, static_cast<int64_t>(num_columns));
   row_reader_options.include(selected_indices);
@@ -423,21 +472,6 @@ Status HdfsOrcScanner::ProcessFileTail() {
   return Status::OK();
 }
 
-inline THdfsCompression::type HdfsOrcScanner::TranslateCompressionKind(
-    orc::CompressionKind kind) {
-  switch (kind) {
-    case orc::CompressionKind::CompressionKind_NONE:return THdfsCompression::NONE;
-    // zlib used in ORC is corresponding to Deflate used in Impala
-    case orc::CompressionKind::CompressionKind_ZLIB: return THdfsCompression::DEFLATE;
-    case orc::CompressionKind::CompressionKind_SNAPPY: return THdfsCompression::SNAPPY;
-    case orc::CompressionKind::CompressionKind_LZO: return THdfsCompression::LZO;
-    case orc::CompressionKind::CompressionKind_LZ4: return THdfsCompression::LZ4;
-    default:
-      VLOG_QUERY << "Unknown compression kind of orc::CompressionKind: " << kind;
-  }
-  return THdfsCompression::DEFAULT;
-}
-
 Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
   bool continue_execution = !scan_node_->ReachedLimit() && !context_->cancelled();
   if (!continue_execution)  return Status::CANCELLED;
@@ -567,7 +601,7 @@ bool HdfsOrcScanner::EvalRuntimeFilter(int i, TupleRow* row) {
 inline void HdfsOrcScanner::ReadRow(const orc::ColumnVectorBatch &batch, int row_idx,
     const orc::Type* orc_type, Tuple* tuple, RowBatch* dst_batch) {
   const orc::StructVectorBatch &struct_batch =
-      dynamic_cast<const orc::StructVectorBatch &>(batch);
+      static_cast<const orc::StructVectorBatch &>(batch);
   for (unsigned int c = 0; c < orc_type->getSubtypeCount(); ++c) {
     orc::ColumnVectorBatch* col_batch = struct_batch.fields[c];
     const orc::Type* col_type = orc_type->getSubtype(c);
@@ -706,44 +740,6 @@ inline void HdfsOrcScanner::ReadRow(const orc::ColumnVectorBatch &batch, int row
         DCHECK(false) << slot_desc->type().DebugString();
     }
   }
-}
-
-void HdfsOrcScanner::Close(RowBatch* row_batch) {
-  DCHECK(!is_closed_);
-  if (row_batch != nullptr) {
-    context_->ReleaseCompletedResources(true);
-    row_batch->tuple_data_pool()->AcquireData(template_tuple_pool_.get(), false);
-    if (scan_node_->HasRowBatchQueue()) {
-      static_cast<HdfsScanNode*>(scan_node_)->AddMaterializedRowBatch(
-          unique_ptr<RowBatch>(row_batch));
-    }
-  } else {
-    template_tuple_pool_->FreeAll();
-    context_->ReleaseCompletedResources(true);
-  }
-  scratch_batch_.reset(NULL);
-
-  // Verify all resources (if any) have been transferred.
-  DCHECK_EQ(template_tuple_pool_->total_allocated_bytes(), 0);
-
-  assemble_rows_timer_.Stop();
-  assemble_rows_timer_.ReleaseCounter();
-
-  THdfsCompression::type compression_type = THdfsCompression::NONE;
-  if (reader_ != nullptr &&
-      reader_->getCompression() != orc::CompressionKind::CompressionKind_NONE) {
-    compression_type = TranslateCompressionKind(reader_->getCompression());
-  }
-  scan_node_->RangeComplete(THdfsFileFormat::ORC, compression_type);
-
-  for (int i = 0; i < filter_ctxs_.size(); ++i) {
-    const FilterStats* stats = filter_ctxs_[i]->stats;
-    const LocalFilterStats& local = filter_stats_[i];
-    stats->IncrCounters(FilterStats::ROWS_KEY, local.total_possible,
-        local.considered, local.rejected);
-  }
-
-  CloseInternal();
 }
 
 }

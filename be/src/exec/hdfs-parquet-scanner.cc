@@ -59,11 +59,11 @@ const string PARQUET_MEM_LIMIT_EXCEEDED =
 
 Status HdfsParquetScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
     const vector<HdfsFileDesc*>& files) {
-  for (int i = 0; i < files.size(); ++i) {
+  for (HdfsFileDesc* file : files) {
     // If the file size is less than 12 bytes, it is an invalid Parquet file.
-    if (files[i]->file_length < 12) {
+    if (file->file_length < 12) {
       return Status(Substitute("Parquet file $0 has an invalid file length: $1",
-          files[i]->filename, files[i]->file_length));
+          file->filename, file->file_length));
     }
   }
   return IssueFooterRanges(scan_node, THdfsFileFormat::PARQUET, files);
