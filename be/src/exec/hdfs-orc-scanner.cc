@@ -48,17 +48,12 @@ Status HdfsOrcScanner::IssueInitialRanges(HdfsScanNodeBase* scan_node,
 
 namespace impala {
 
-HdfsOrcScanner::OrcMemPool::OrcMemPool(MemTracker* mem_tracker) {
-  mem_tracker_.reset(new MemTracker(-1, "OrcReader", mem_tracker));
+HdfsOrcScanner::OrcMemPool::OrcMemPool(MemTracker* mem_tracker)
+    : mem_tracker_(mem_tracker) {
 }
 
 HdfsOrcScanner::OrcMemPool::~OrcMemPool() {
   Clear();
-  // We should unregister it from its parent since this is a scoped_ptr which will
-  // destruct this MemTracker after the scanner is deconstructed. If its parent
-  // still keep the reference, it will be used in later code path like LogUsage and
-  // cause errors.
-  mem_tracker_->CloseAndUnregisterFromParent();
 }
 
 void HdfsOrcScanner::OrcMemPool::Clear() {
@@ -72,7 +67,6 @@ void HdfsOrcScanner::OrcMemPool::Clear() {
   if (ImpaladMetrics::MEM_POOL_TOTAL_BYTES != nullptr) {
     ImpaladMetrics::MEM_POOL_TOTAL_BYTES->Increment(-total_bytes_released);
   }
-  DCHECK_EQ(mem_tracker_->consumption(), 0);
 }
 
 char* HdfsOrcScanner::OrcMemPool::malloc(uint64_t size) {
@@ -108,14 +102,13 @@ void HdfsOrcScanner::ScanRangeInputStream::read(void* buf, uint64_t length,
   const ScanRange* metadata_range = scanner_->metadata_range_;
   const ScanRange* split_range =
       reinterpret_cast<ScanRangeMetadata*>(metadata_range->meta_data())->original_split;
-  const char* filename = scanner_->filename();
   bool expected_local = split_range->expected_local()
                    && offset >= split_range->offset()
                    && offset + length <= split_range->offset() + split_range->len();
   int64_t partition_id = scanner_->context_->partition_descriptor()->id();
 
   ScanRange* range = scanner_->scan_node_->AllocateScanRange(
-      metadata_range->fs(), filename, length, offset, partition_id,
+      metadata_range->fs(), scanner_->filename(), length, offset, partition_id,
       split_range->disk_id(), expected_local,
       BufferOpts::ReadInto(reinterpret_cast<uint8_t*>(buf), length));
 
@@ -147,13 +140,13 @@ Status HdfsOrcScanner::Open(ScannerContext* context) {
   RETURN_IF_ERROR(HdfsScanner::Open(context));
   metadata_range_ = stream_->scan_range();
   num_cols_counter_ =
-      ADD_COUNTER(scan_node_->runtime_profile(), "NumColumns", TUnit::UNIT);
+      ADD_COUNTER(scan_node_->runtime_profile(), "NumOrcColumns", TUnit::UNIT);
   num_stripes_counter_ =
-      ADD_COUNTER(scan_node_->runtime_profile(), "NumStripes", TUnit::UNIT);
+      ADD_COUNTER(scan_node_->runtime_profile(), "NumOrcStripes", TUnit::UNIT);
   num_scanners_with_no_reads_counter_ =
       ADD_COUNTER(scan_node_->runtime_profile(), "NumScannersWithNoReads", TUnit::UNIT);
   process_footer_timer_stats_ =
-      ADD_SUMMARY_STATS_TIMER(scan_node_->runtime_profile(), "FooterProcessingTime");
+      ADD_SUMMARY_STATS_TIMER(scan_node_->runtime_profile(), "OrcFooterProcessingTime");
 
   scan_node_->IncNumScannersCodegenDisabled();
 
@@ -206,7 +199,7 @@ void HdfsOrcScanner::Close(RowBatch* row_batch) {
     template_tuple_pool_->FreeAll();
     context_->ReleaseCompletedResources(true);
   }
-  scratch_batch_.reset(NULL);
+  scratch_batch_.reset(nullptr);
 
   // Verify all resources (if any) have been transferred.
   DCHECK_EQ(template_tuple_pool_->total_allocated_bytes(), 0);
@@ -225,10 +218,33 @@ void HdfsOrcScanner::Close(RowBatch* row_batch) {
     const FilterStats* stats = filter_ctxs_[i]->stats;
     const LocalFilterStats& local = filter_stats_[i];
     stats->IncrCounters(FilterStats::ROWS_KEY, local.total_possible,
-                        local.considered, local.rejected);
+        local.considered, local.rejected);
   }
 
   CloseInternal();
+}
+
+Status HdfsOrcScanner::ProcessFileTail() {
+  unique_ptr<orc::InputStream> input_stream(new ScanRangeInputStream(this));
+  try {
+    reader_ = orc::createReader(move(input_stream), reader_options_);
+  } catch (std::exception& e) {
+    VLOG_QUERY << "Encounter parse error: " << e.what();
+    parse_status_ = Status(Substitute("Encounter parse error: $0.", e.what()));
+    return parse_status_;
+  }
+
+  if (reader_->getNumberOfRows() == 0) {
+    // Empty file
+    return Status::OK();
+  }
+
+  if (reader_->getNumberOfStripes() == 0) {
+    return Status(Substitute("Invalid file: $0. No stripes in this file but numberOfRows"
+        " in footer is $1", filename(), reader_->getNumberOfRows()));
+  }
+
+  return Status::OK();
 }
 
 inline THdfsCompression::type HdfsOrcScanner::TranslateCompressionKind(
@@ -329,14 +345,14 @@ Status HdfsOrcScanner::GetNextInternal(RowBatch* row_batch) {
   }
 
   // reset tuple memory. We'll allocate it the first time we use it.
+  tuple_mem_ = nullptr;
   tuple_ = nullptr;
 
   // Transfer remaining tuples from the scratch batch.
   if (ScratchBatchNotEmpty()) {
     assemble_rows_timer_.Start();
-    int num_row_to_commit = TransferScratchTuples(row_batch);
+    RETURN_IF_ERROR(TransferScratchTuples(row_batch));
     assemble_rows_timer_.Stop();
-    RETURN_IF_ERROR(CommitRows(num_row_to_commit, row_batch));
     if (row_batch->AtCapacity()) return Status::OK();
     DCHECK_EQ(scratch_batch_tuple_idx_, scratch_batch_->numElements);
   }
@@ -423,8 +439,8 @@ Status HdfsOrcScanner::NextStripe() {
 
     // TODO ValidateColumnOffsets
 
-    google::uint64 stripe_offset = stripe->getOffset();
-    google::uint64 stripe_len = stripe->getIndexLength() + stripe->getDataLength() +
+    uint64_t stripe_offset = stripe->getOffset();
+    uint64_t stripe_len = stripe->getIndexLength() + stripe->getDataLength() +
         stripe->getFooterLength();
     int64_t stripe_mid_pos = stripe_offset + stripe_len / 2;
     if (!(stripe_mid_pos >= split_offset &&
@@ -442,33 +458,12 @@ Status HdfsOrcScanner::NextStripe() {
     row_reader_options.range(stripe->getOffset(), stripe_len);
     row_reader_ = reader_->createRowReader(row_reader_options);
     end_of_stripe_ = false;
+    VLOG_FILE << Substitute("Created RowReader for stripe(offset=$0, len=$1) in file $2",
+        stripe->getOffset(), stripe_len, filename());
     break;
   }
 
   DCHECK(parse_status_.ok());
-  return Status::OK();
-}
-
-Status HdfsOrcScanner::ProcessFileTail() {
-  unique_ptr<orc::InputStream> input_stream(new ScanRangeInputStream(this));
-  try {
-    reader_ = orc::createReader(move(input_stream), reader_options_);
-  } catch (std::exception& e) {
-    VLOG_QUERY << "Encounter parse error: " << e.what();
-    parse_status_ = Status(Substitute("Encounter parse error: $0.", e.what()));
-    return parse_status_;
-  }
-
-  if (reader_->getNumberOfRows() == 0) {
-    // Empty file
-    return Status::OK();
-  }
-
-  if (reader_->getNumberOfStripes() == 0) {
-    return Status(Substitute("Invalid file: $0. No stripes in this file but numberOfRows"
-        " in footer is $1", filename(), reader_->getNumberOfRows()));
-  }
-
   return Status::OK();
 }
 
@@ -509,8 +504,7 @@ Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
       scratch_batch_tuple_idx_ = 0;
     }
 
-    int num_to_commit = TransferScratchTuples(row_batch);
-    RETURN_IF_ERROR(CommitRows(num_to_commit, row_batch));
+    RETURN_IF_ERROR(TransferScratchTuples(row_batch));
     if (row_batch->AtCapacity()) break;
     continue_execution &= !scan_node_->ReachedLimit() && !context_->cancelled();
   }
@@ -519,7 +513,7 @@ Status HdfsOrcScanner::AssembleRows(RowBatch* row_batch) {
   return Status::OK();
 }
 
-int HdfsOrcScanner::TransferScratchTuples(RowBatch* dst_batch) {
+Status HdfsOrcScanner::TransferScratchTuples(RowBatch* dst_batch) {
   const TupleDescriptor* tuple_desc = scan_node_->tuple_desc();
 
   ScalarExprEvaluator* const* conjunct_evals = conjunct_evals_->data();
@@ -529,17 +523,18 @@ int HdfsOrcScanner::TransferScratchTuples(RowBatch* dst_batch) {
   DCHECK_EQ(root_type->getKind(), orc::TypeKind::STRUCT);
 
   DCHECK_LT(dst_batch->num_rows(), dst_batch->capacity());
+  if (tuple_ == nullptr) AllocateTupleMem(dst_batch);
   int row_id = dst_batch->num_rows();
   int capacity = dst_batch->capacity();
   int num_to_commit = 0;
   TupleRow* row = dst_batch->GetRow(row_id);
-
-  if (tuple_ == nullptr) AllocateTupleMem(dst_batch);
   Tuple* tuple = tuple_;  // tuple_ is updated in CommitRows
 
   while (row_id < capacity && ScratchBatchNotEmpty()) {
+    DCHECK_LT((void*)tuple, (void*)tuple_mem_end_);
     InitTuple(tuple_desc, template_tuple_, tuple);
-    ReadRow(*scratch_batch_, scratch_batch_tuple_idx_++, root_type, tuple, dst_batch);
+    RETURN_IF_ERROR(ReadRow(*scratch_batch_, scratch_batch_tuple_idx_++, root_type,
+        tuple, dst_batch));
     row->SetTuple(scan_node_->tuple_idx(), tuple);
     if (!EvalRuntimeFilters(row)) continue;
     if (ExecNode::EvalConjuncts(conjunct_evals, num_conjuncts, row)) {
@@ -549,13 +544,16 @@ int HdfsOrcScanner::TransferScratchTuples(RowBatch* dst_batch) {
       ++num_to_commit;
     }
   }
-  return num_to_commit;
+  VLOG_FILE << Substitute("Transfer $0 rows from scratch batch to dst_batch ($1 rows)",
+      num_to_commit, dst_batch->num_rows());
+  return CommitRows(num_to_commit, dst_batch);
 }
 
 Status HdfsOrcScanner::AllocateTupleMem(RowBatch* row_batch) {
   int64_t tuple_buffer_size;
   RETURN_IF_ERROR(
       row_batch->ResizeAndAllocateTupleBuffer(state_, &tuple_buffer_size, &tuple_mem_));
+  tuple_mem_end_ = tuple_mem_ + tuple_buffer_size;
   tuple_ = reinterpret_cast<Tuple*>(tuple_mem_);
   DCHECK_GT(row_batch->capacity(), 0);
   return Status::OK();
@@ -598,7 +596,7 @@ bool HdfsOrcScanner::EvalRuntimeFilter(int i, TupleRow* row) {
   return true;
 }
 
-inline void HdfsOrcScanner::ReadRow(const orc::ColumnVectorBatch &batch, int row_idx,
+inline Status HdfsOrcScanner::ReadRow(const orc::ColumnVectorBatch &batch, int row_idx,
     const orc::Type* orc_type, Tuple* tuple, RowBatch* dst_batch) {
   const orc::StructVectorBatch &struct_batch =
       static_cast<const orc::StructVectorBatch &>(batch);
@@ -663,15 +661,20 @@ inline void HdfsOrcScanner::ReadRow(const orc::ColumnVectorBatch &batch, int row
       case orc::TypeKind::VARCHAR:
       case orc::TypeKind::CHAR: {
         char* const* start =
-            dynamic_cast<const orc::StringVectorBatch*>(col_batch)->data.data();
+            static_cast<const orc::StringVectorBatch*>(col_batch)->data.data();
         const int64_t* length =
-            dynamic_cast<const orc::StringVectorBatch*>(col_batch)->length.data();
+            static_cast<const orc::StringVectorBatch*>(col_batch)->length.data();
         StringValue* val_ptr = reinterpret_cast<StringValue*>(slot_val_ptr);
         val_ptr->len = length[row_idx];
         // Space in the StringVectorBatch is allocated by reader_mem_pool_. It will be
         // reused at next batch, so we allocate a new space for this string.
-        val_ptr->ptr = reinterpret_cast<char*>(
-            dst_batch->tuple_data_pool()->Allocate(val_ptr->len));
+        uint8_t* buffer = dst_batch->tuple_data_pool()->TryAllocate(val_ptr->len);
+        if (buffer == nullptr) {
+          string details = Substitute("Could not allocate string buffer of $0 bytes for "
+              "ORC file '$1'.", val_ptr->len, filename());
+          return scan_node_->mem_tracker()->MemLimitExceeded(state_, details, val_ptr->len);
+        }
+        val_ptr->ptr = reinterpret_cast<char*>(buffer);
         memcpy(val_ptr->ptr, start[row_idx], val_ptr->len);
         break;
       }
@@ -740,6 +743,7 @@ inline void HdfsOrcScanner::ReadRow(const orc::ColumnVectorBatch &batch, int row
         DCHECK(false) << slot_desc->type().DebugString();
     }
   }
+  return Status::OK();
 }
 
 }

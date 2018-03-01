@@ -46,7 +46,7 @@ class HdfsOrcScanner : public HdfsScanner {
 
     void Clear();
    private:
-    boost::scoped_ptr<MemTracker> mem_tracker_;
+    MemTracker* mem_tracker_;
     boost::unordered_map<char*, uint64_t> chunk_sizes_;
   };
 
@@ -74,8 +74,8 @@ class HdfsOrcScanner : public HdfsScanner {
     }
 
   private:
-    HdfsOrcScanner *scanner_;
-    HdfsFileDesc *file_desc_;
+    HdfsOrcScanner* scanner_;
+    HdfsFileDesc* file_desc_;
     std::string filename_;
   };
 
@@ -94,6 +94,9 @@ class HdfsOrcScanner : public HdfsScanner {
 
  private:
   friend class HdfsOrcScannerTest;
+
+  /// Memory guard of the tuple_mem_
+  uint8_t* tuple_mem_end_ = nullptr;
 
   /// Index of the current stripe being processed. Initialized to -1 which indicates
   /// that we have not started processing the first stripe yet (GetNext() has not yet
@@ -171,8 +174,8 @@ class HdfsOrcScanner : public HdfsScanner {
 
   /// Function used by TransferScratchTuples() to read a single row from scratch_batch_
   /// into 'tuple'.
-  inline void ReadRow(const orc::ColumnVectorBatch &batch, int row_idx,
-      const orc::Type* orc_type, Tuple* tuple, RowBatch* dst_batch);
+  inline Status ReadRow(const orc::ColumnVectorBatch &batch, int row_idx,
+      const orc::Type* orc_type, Tuple* tuple, RowBatch* dst_batch) WARN_UNUSED_RESULT;
 
   /// Commit num_rows to the given row batch.
   /// Returns OK if the query is not cancelled and hasn't exceeded any mem limits.
@@ -183,7 +186,7 @@ class HdfsOrcScanner : public HdfsScanner {
   /// Evaluates runtime filters and conjuncts (if any) against the tuples in
   /// 'scratch_batch_', and adds the surviving tuples to the given batch.
   /// Returns the number of rows that should be committed to the given batch.
-  int TransferScratchTuples(RowBatch* dst_batch);
+  Status TransferScratchTuples(RowBatch* dst_batch) WARN_UNUSED_RESULT;
 
   /// Evaluates 'row' against the i-th runtime filter for this scan node and returns
   /// true if 'row' finds a match in the filter. Returns false otherwise.
