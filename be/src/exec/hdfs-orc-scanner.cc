@@ -456,7 +456,14 @@ Status HdfsOrcScanner::NextStripe() {
 
     COUNTER_ADD(num_stripes_counter_, 1);
     row_reader_options.range(stripe->getOffset(), stripe_len);
-    row_reader_ = reader_->createRowReader(row_reader_options);
+    try {
+      row_reader_ = reader_->createRowReader(row_reader_options);
+    } catch (std::exception& e) {
+      VLOG_QUERY << "Error in creating ORC column readers: " << e.what();
+      parse_status_ = Status(
+          Substitute("Error in creating ORC column readers: $0.", e.what()));
+      return parse_status_;
+    }
     end_of_stripe_ = false;
     VLOG_FILE << Substitute("Created RowReader for stripe(offset=$0, len=$1) in file $2",
         stripe->getOffset(), stripe_len, filename());
