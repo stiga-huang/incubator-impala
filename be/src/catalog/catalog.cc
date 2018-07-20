@@ -50,6 +50,10 @@ DEFINE_int64(sentry_catalog_polling_frequency_s, 60,
     "any policy changes.");
 DEFINE_string(sentry_config, "", "Local path to a sentry-site.xml configuration "
     "file. If set, authorization will be enabled.");
+DEFINE_string(catalog_cache_blacklist, "",
+    "Specify the tables that should not be cached in catalogd, because the metadata of "
+    "the tables are too large. Using commas to separate tables, "
+    "like this 'database1.table,database2.table'");
 
 Catalog::Catalog() {
   JniMethodDescriptor methods[] = {

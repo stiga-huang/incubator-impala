@@ -177,6 +177,10 @@ public class TableLoadingMgr {
       }});
   }
 
+  public void setBlackList(String blacklist) {
+    tblLoader_.setBlacklist(blacklist);
+  }
+
   /**
    * Prioritizes the loading of the given table.
    */

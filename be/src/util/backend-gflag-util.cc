@@ -48,6 +48,7 @@ DECLARE_string(authorized_proxy_user_config_delimiter);
 DECLARE_string(kudu_master_hosts);
 DECLARE_string(reserved_words_version);
 DECLARE_string(sentry_config);
+DECLARE_string(catalog_cache_blacklist);
 DECLARE_double(max_filter_error_rate);
 DECLARE_int64(min_buffer_size);
 
@@ -90,6 +91,7 @@ Status GetThriftBackendGflags(JNIEnv* jni_env, jbyteArray* cfg_bytes) {
   }
   cfg.__set_max_filter_error_rate(FLAGS_max_filter_error_rate);
   cfg.__set_min_buffer_size(FLAGS_min_buffer_size);
+  cfg.__set_catalog_cache_blacklist(FLAGS_catalog_cache_blacklist);
   RETURN_IF_ERROR(SerializeThriftMsg(jni_env, &cfg, cfg_bytes));
   return Status::OK();
 }

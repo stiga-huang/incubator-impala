@@ -109,6 +109,9 @@ public class JniCatalog {
     catalog_ = new CatalogServiceCatalog(cfg.load_catalog_in_background,
         cfg.num_metadata_loading_threads, cfg.initial_hms_cnxn_timeout_s, sentryConfig,
         getServiceId(), cfg.principal, cfg.local_library_path);
+    if (!Strings.isNullOrEmpty(cfg.catalog_cache_blacklist)) {
+      catalog_.setBlacklist(cfg.catalog_cache_blacklist);
+    }
     try {
       catalog_.reset();
     } catch (CatalogException e) {

@@ -253,6 +253,14 @@ public class CatalogServiceCatalog extends Catalog {
     deleteLog_ = new CatalogDeltaLog();
   }
 
+  /**
+   *  Set the blacklist of catalog caching
+   *  @param blacklist: should be separated by comma and in lowercase
+   */
+  public void setBlacklist(String blacklist) {
+    tableLoadingMgr_.setBlackList(blacklist);
+  }
+
   // Timeout for acquiring a table lock
   // TODO: Make this configurable
   private static final long TBL_LOCK_TIMEOUT_MS = 7200000;

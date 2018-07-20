@@ -18,6 +18,8 @@
 package org.apache.impala.catalog;
 
 import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.List;
 
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
@@ -43,8 +45,17 @@ public class TableLoader {
   // HIVE-5457.
   private static final Object metastoreAccessLock_ = new Object();
 
+  private static final HashSet<String> tableBlacklistOfCache = new HashSet<>();
+
   public TableLoader(CatalogServiceCatalog catalog) {
     catalog_ = catalog;
+  }
+
+  public void setBlacklist(String blacklist) {
+    String[] result = blacklist.split(",");
+    for (String fullTbName: result) {
+      tableBlacklistOfCache.add(fullTbName);
+    }
   }
 
   /**
@@ -57,6 +68,14 @@ public class TableLoader {
     String fullTblName = db.getName() + "." + tblName;
     LOG.info("Loading metadata for: " + fullTblName);
     Table table;
+    if (tableBlacklistOfCache.contains(fullTblName)) {
+      table = IncompleteTable.createFailedMetadataLoadTable(
+          db, tblName, new TableLoadingException(
+              "Table " + fullTblName + " is banned, because the metadata of " +
+              "this table is too large to cache. Call the Big Data Infra for help " +
+              "by emailing to bdi@hulu.com or joining #big-data-infras channel on Slack"));
+      return table;
+    }
     // turn all exceptions into TableLoadingException
     try (MetaStoreClient msClient = catalog_.getMetaStoreClient()) {
       org.apache.hadoop.hive.metastore.api.Table msTbl = null;
