@@ -38,6 +38,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.apache.avro.Schema;
+import org.apache.commons.io.FileSystemUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.FileStatus;
@@ -416,7 +417,7 @@ public class HdfsTable extends Table {
     }
 
     FileSystem fs = partDir.getFileSystem(CONF);
-    boolean supportsBlocks = FileSystemUtil.supportsStorageIds(fs);
+    boolean supportsBlocks = usingBlockLocations(fs);
     RemoteIterator<LocatedFileStatus> fileStatusIter =
         FileSystemUtil.listFiles(fs, partDir, false);
     if (fileStatusIter == null) return loadStats;
@@ -478,7 +479,7 @@ public class HdfsTable extends Table {
     FileSystem fs = partDir.getFileSystem(CONF);
     FileStatus[] fileStatuses = FileSystemUtil.listStatus(fs, partDir);
     if (fileStatuses == null) return loadStats;
-    boolean supportsBlocks = FileSystemUtil.supportsStorageIds(fs);
+    boolean supportsBlocks = usingBlockLocations(fs);
     Reference<Long> numUnknownDiskIds = new Reference<Long>(Long.valueOf(0));
     List<FileDescriptor> newFileDescs = Lists.newArrayList();
     // If there is a cached partition mapped to this path, we recompute the block
@@ -522,6 +523,16 @@ public class HdfsTable extends Table {
           + loadStats.debugString());
     }
     return loadStats;
+  }
+
+  /**
+  *  If the 'fileSystem' supports blocks and the blocks information is not banned
+  *  by Impala running parameters, then return true, otherwise return false.
+  *  The reason is that the Impala cluster is se from the HDFS cluster.
+  * */
+  private boolean usingBlockLocations(FileSystem fs) {
+    boolean blockLocationBanned_ = true;
+    return FileSystemUtil.supportsStorageIds(fs) && ! blockLocationBanned_;
   }
 
   /**

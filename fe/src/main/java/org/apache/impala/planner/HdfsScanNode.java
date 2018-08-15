@@ -781,6 +781,8 @@ public class HdfsScanNode extends ScanNode {
         throw new ImpalaRuntimeException("Error determining partition fs type", e);
       }
       boolean fsHasBlocks = FileSystemUtil.supportsStorageIds(partitionFs);
+      boolean blockLocationsBanned = true;
+      fsHasBlocks = fsHasBlocks && !blockLocationsBanned;
       if (!fsHasBlocks) {
         // Limit the scan range length if generating scan ranges.
         long maxBlockSize =
