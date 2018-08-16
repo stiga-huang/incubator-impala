@@ -532,6 +532,7 @@ public class HdfsTable extends Table {
   * */
   private boolean usingBlockLocations(FileSystem fs) {
     boolean blockLocationBanned_ = true;
+    LOG.debug("blocks information banned: " + blockLocationBanned_);
     return FileSystemUtil.supportsStorageIds(fs) && ! blockLocationBanned_;
   }
 
@@ -783,13 +784,14 @@ public class HdfsTable extends Table {
       List<org.apache.hadoop.hive.metastore.api.Partition> msPartitions,
       org.apache.hadoop.hive.metastore.api.Table msTbl) throws IOException,
       CatalogException {
+    LOG.info("loadAllPartitions");
     Preconditions.checkNotNull(msTbl);
     initializePartitionMetadata(msTbl);
     // Map of partition paths to their corresponding HdfsPartition objects. Populated
     // using createPartition() calls. A single partition path can correspond to multiple
     // partitions.
     HashMap<Path, List<HdfsPartition>> partsByPath = Maps.newHashMap();
-
+    LOG.info("Table.PartitionKeysSize=" + msTbl.getPartitionKeysSize());
     if (msTbl.getPartitionKeysSize() == 0) {
       Preconditions.checkArgument(msPartitions == null || msPartitions.isEmpty());
       // This table has no partition key, which means it has no declared partitions.
@@ -833,6 +835,7 @@ public class HdfsTable extends Table {
         }
       }
     }
+    LOG.info("partitions by path: " + partsByPath.toString());
     // Load the file metadata from scratch.
     loadMetadataAndDiskIds(partsByPath, false);
   }
@@ -892,6 +895,7 @@ public class HdfsTable extends Table {
    */
   private void loadMetadataAndDiskIds(Map<Path, List<HdfsPartition>> partsByPath,
       boolean reuseFileMd) throws CatalogException {
+    LOG.info("loadMetadataAndDiskIds");
     int numPathsToLoad = partsByPath.size();
     // For tables without partitions we have no file metadata to load.
     if (numPathsToLoad == 0) return;
