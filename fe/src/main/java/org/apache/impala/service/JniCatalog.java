@@ -27,10 +27,7 @@ import java.util.UUID;
 
 import org.apache.impala.authorization.SentryConfig;
 import org.apache.impala.authorization.User;
-import org.apache.impala.catalog.CatalogException;
-import org.apache.impala.catalog.CatalogServiceCatalog;
-import org.apache.impala.catalog.Db;
-import org.apache.impala.catalog.Function;
+import org.apache.impala.catalog.*;
 import org.apache.impala.common.ImpalaException;
 import org.apache.impala.common.InternalException;
 import org.apache.impala.common.JniUtil;
@@ -115,6 +112,9 @@ public class JniCatalog {
       LOG.error("Error initializing Catalog. Please run 'invalidate metadata'", e);
     }
     catalogOpExecutor_ = new CatalogOpExecutor(catalog_);
+    if (cfg.block_location_banned) {
+      HdfsTable.setBlockLocationBanned_(cfg.block_location_banned);
+    }
   }
 
   public static TUniqueId getServiceId() { return catalogServiceId_; }

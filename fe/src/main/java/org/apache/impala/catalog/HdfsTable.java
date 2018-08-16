@@ -283,6 +283,13 @@ public class HdfsTable extends Table {
   private static final int MAX_NON_HDFS_PARTITIONS_PARALLEL_LOAD =
       BackendConfig.INSTANCE.maxNonHdfsPartsParallelLoad();
 
+  public static void setBlockLocationBanned_(boolean blockLocationBanned_) {
+    HdfsTable.blockLocationBanned_ = blockLocationBanned_;
+  }
+
+  // do not fetch locations from HDFS
+  private static boolean blockLocationBanned_ = false;
+
   // File/Block metadata loading stats for a single HDFS path.
   private class FileMetadataLoadStats {
     // Path corresponding to this metadata load request.
@@ -531,7 +538,6 @@ public class HdfsTable extends Table {
   *  The reason is that the Impala cluster is se from the HDFS cluster.
   * */
   private boolean usingBlockLocations(FileSystem fs) {
-    boolean blockLocationBanned_ = true;
     LOG.debug("blocks information banned: " + blockLocationBanned_);
     return FileSystemUtil.supportsStorageIds(fs) && ! blockLocationBanned_;
   }
@@ -806,9 +812,13 @@ public class HdfsTable extends Table {
       FileSystem fs = tblLocation.getFileSystem(CONF);
       accessLevel_ = getAvailableAccessLevel(fs, tblLocation);
     } else {
+      LOG.debug("size of msPartitions: " + msPartitions.size());
       for (org.apache.hadoop.hive.metastore.api.Partition msPartition: msPartitions) {
+        LOG.info("msPartition:" + msPartition);
         HdfsPartition partition = createPartition(msPartition.getSd(), msPartition);
+        LOG.info("created partition");
         addPartition(partition);
+        LOG.info("add partition");
         // If the partition is null, its HDFS path does not exist, and it was not added
         // to this table's partition list. Skip the partition.
         if (partition == null) continue;
@@ -825,8 +835,10 @@ public class HdfsTable extends Table {
           accessLevel_ = TAccessLevel.READ_ONLY;
         }
 
+        LOG.info("create fully qualified path");
         Path partDir = FileSystemUtil.createFullyQualifiedPath(
             new Path(msPartition.getSd().getLocation()));
+        LOG.info("got partition location");
         List<HdfsPartition> parts = partsByPath.get(partDir);
         if (parts == null) {
           partsByPath.put(partDir, Lists.newArrayList(partition));

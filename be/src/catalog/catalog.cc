@@ -50,6 +50,7 @@ DEFINE_int64(sentry_catalog_polling_frequency_s, 60,
     "any policy changes.");
 DEFINE_string(sentry_config, "", "Local path to a sentry-site.xml configuration "
     "file. If set, authorization will be enabled.");
+DEFINE_bool(block_location_banned, false, "If true, do not load locations from HDFS");
 
 Catalog::Catalog() {
   JniMethodDescriptor methods[] = {

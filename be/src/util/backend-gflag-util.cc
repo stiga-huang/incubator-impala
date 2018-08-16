@@ -28,6 +28,7 @@ DECLARE_bool(load_catalog_in_background);
 DECLARE_bool(load_auth_to_local_rules);
 DECLARE_bool(enable_stats_extrapolation);
 DECLARE_bool(enable_orc_scanner);
+DECLARE_bool(block_location_banned);
 DECLARE_int32(non_impala_java_vlog);
 DECLARE_int32(num_metadata_loading_threads);
 DECLARE_int32(max_hdfs_partitions_parallel_load);
@@ -90,6 +91,7 @@ Status GetThriftBackendGflags(JNIEnv* jni_env, jbyteArray* cfg_bytes) {
   }
   cfg.__set_max_filter_error_rate(FLAGS_max_filter_error_rate);
   cfg.__set_min_buffer_size(FLAGS_min_buffer_size);
+  cfg.__set_block_location_banned(FLAGS_block_location_banned);
   RETURN_IF_ERROR(SerializeThriftMsg(jni_env, &cfg, cfg_bytes));
   return Status::OK();
 }

@@ -106,6 +106,7 @@ public class MetaStoreUtil {
       try {
         // First, get all partition names that currently exist.
         List<String> partNames = client.listPartitionNames(dbName, tblName, (short) -1);
+        LOG.debug("partNames=" + partNames.toString());
         return MetaStoreUtil.fetchPartitionsByName(client, partNames, dbName, tblName);
       } catch (MetaException e) {
         // Only retry for MetaExceptions, since TExceptions could indicate a broken
@@ -140,6 +141,7 @@ public class MetaStoreUtil {
         Lists.newArrayList();
     // Fetch the partitions in batches.
     for (int i = 0; i < partNames.size(); i += maxPartitionsPerRpc_) {
+      LOG.debug("fetchPartitionsByName:" + i);
       // Get a subset of partition names to fetch.
       List<String> partsToFetch =
           partNames.subList(i, Math.min(i + maxPartitionsPerRpc_, partNames.size()));
