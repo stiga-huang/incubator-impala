@@ -61,8 +61,10 @@ public class PlanHint {
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
-    sb.append(name_);
-    if (!args_.isEmpty()) {
+    if (args_.isEmpty()) {
+      sb.append('`').append(name_).append('`');
+    } else {
+      sb.append(name_);
       sb.append("(");
       sb.append(Joiner.on(",").join(args_));
       sb.append(")");
