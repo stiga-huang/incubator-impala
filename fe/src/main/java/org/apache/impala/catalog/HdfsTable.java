@@ -430,22 +430,36 @@ public class HdfsTable extends Table {
     if (fileStatusIter == null) return loadStats;
     Reference<Long> numUnknownDiskIds = new Reference<Long>(Long.valueOf(0));
     List<FileDescriptor> newFileDescs = Lists.newArrayList();
-    while (fileStatusIter.hasNext()) {
-      LocatedFileStatus fileStatus = fileStatusIter.next();
-      if (!FileSystemUtil.isValidDataFile(fileStatus)) {
-        ++loadStats.hiddenFiles;
-        continue;
+    if (blockLocationBanned_) {
+      FileStatus[] fileStatusList = FileSystemUtil.listStatus(fs, partDir);
+      for (FileStatus fileStatus : fileStatusList) {
+        if (!FileSystemUtil.isValidDataFile(fileStatus)) {
+          ++loadStats.hiddenFiles;
+          continue;
+        }
+        FileDescriptor fd;
+        fd = FileDescriptor.createWithNoBlocks(fileStatus, partitions.get(0).getFileFormat());
+        newFileDescs.add(fd);
+        ++loadStats.loadedFiles;
       }
-      FileDescriptor fd;
-      if (supportsBlocks) {
-        fd = FileDescriptor.create(fileStatus, fileStatus.getBlockLocations(), fs,
-            hostIndex_, numUnknownDiskIds);
-      } else {
-        fd = FileDescriptor.createWithNoBlocks(
-            fileStatus, partitions.get(0).getFileFormat());
+    } else {
+      while (fileStatusIter.hasNext()) {
+        LocatedFileStatus fileStatus = fileStatusIter.next();
+        if (!FileSystemUtil.isValidDataFile(fileStatus)) {
+          ++loadStats.hiddenFiles;
+          continue;
+        }
+        FileDescriptor fd;
+        if (supportsBlocks) {
+          fd = FileDescriptor.create(fileStatus, fileStatus.getBlockLocations(), fs,
+                  hostIndex_, numUnknownDiskIds);
+        } else {
+          fd = FileDescriptor.createWithNoBlocks(
+                  fileStatus, partitions.get(0).getFileFormat());
+        }
+        newFileDescs.add(fd);
+        ++loadStats.loadedFiles;
       }
-      newFileDescs.add(fd);
-      ++loadStats.loadedFiles;
     }
     for (HdfsPartition partition: partitions) partition.setFileDescriptors(newFileDescs);
     loadStats.unknownDiskIds += numUnknownDiskIds.getRef();
@@ -790,14 +804,12 @@ public class HdfsTable extends Table {
       List<org.apache.hadoop.hive.metastore.api.Partition> msPartitions,
       org.apache.hadoop.hive.metastore.api.Table msTbl) throws IOException,
       CatalogException {
-    LOG.info("loadAllPartitions");
     Preconditions.checkNotNull(msTbl);
     initializePartitionMetadata(msTbl);
     // Map of partition paths to their corresponding HdfsPartition objects. Populated
     // using createPartition() calls. A single partition path can correspond to multiple
     // partitions.
     HashMap<Path, List<HdfsPartition>> partsByPath = Maps.newHashMap();
-    LOG.info("Table.PartitionKeysSize=" + msTbl.getPartitionKeysSize());
     if (msTbl.getPartitionKeysSize() == 0) {
       Preconditions.checkArgument(msPartitions == null || msPartitions.isEmpty());
       // This table has no partition key, which means it has no declared partitions.
@@ -812,13 +824,9 @@ public class HdfsTable extends Table {
       FileSystem fs = tblLocation.getFileSystem(CONF);
       accessLevel_ = getAvailableAccessLevel(fs, tblLocation);
     } else {
-      LOG.debug("size of msPartitions: " + msPartitions.size());
       for (org.apache.hadoop.hive.metastore.api.Partition msPartition: msPartitions) {
-        LOG.info("msPartition:" + msPartition);
         HdfsPartition partition = createPartition(msPartition.getSd(), msPartition);
-        LOG.info("created partition");
         addPartition(partition);
-        LOG.info("add partition");
         // If the partition is null, its HDFS path does not exist, and it was not added
         // to this table's partition list. Skip the partition.
         if (partition == null) continue;
@@ -835,10 +843,8 @@ public class HdfsTable extends Table {
           accessLevel_ = TAccessLevel.READ_ONLY;
         }
 
-        LOG.info("create fully qualified path");
         Path partDir = FileSystemUtil.createFullyQualifiedPath(
             new Path(msPartition.getSd().getLocation()));
-        LOG.info("got partition location");
         List<HdfsPartition> parts = partsByPath.get(partDir);
         if (parts == null) {
           partsByPath.put(partDir, Lists.newArrayList(partition));
@@ -847,7 +853,6 @@ public class HdfsTable extends Table {
         }
       }
     }
-    LOG.info("partitions by path: " + partsByPath.toString());
     // Load the file metadata from scratch.
     loadMetadataAndDiskIds(partsByPath, false);
   }
