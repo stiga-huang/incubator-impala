@@ -335,9 +335,9 @@ class TestDdlStatements(TestDdlBase):
     results = self.execute_query("describe formatted %s.hints_test" % unique_database)
     sj, bc, shuf = 0,0,0
     for row in results.data:
-        sj += '-- +straight_join' in row
-        bc += '-- +broadcast' in row
-        shuf += '-- +shuffle' in row
+        sj += '-- +`straight_join`' in row
+        bc += '-- +`broadcast`' in row
+        shuf += '-- +`shuffle`' in row
     assert sj == 2
     assert bc == 2
     assert shuf == 2

@@ -1861,7 +1861,7 @@ public class AnalyzeDDLTest extends FrontendTestBase {
       AnalyzesOk(String.format("create %sbadhint%s table t " +
           "partitioned by (year, month) as select * from functional.alltypes",
           prefix, suffix),
-          "INSERT hint not recognized: badhint");
+          "INSERT hint not recognized: `badhint`");
       // Conflicting plan hints.
       AnalysisError(String.format("create %sshuffle,noshuffle%s table t " +
           "partitioned by (year, month) as " +

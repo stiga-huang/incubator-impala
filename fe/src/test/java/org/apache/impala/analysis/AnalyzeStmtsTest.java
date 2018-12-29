@@ -1655,7 +1655,7 @@ public class AnalyzeStmtsTest extends AnalyzerTest {
       AnalyzesOk(
           String.format("select * from functional.alltypes a join %sbadhint%s " +
               "functional.alltypes b using (int_col)", prefix, suffix),
-          "JOIN hint not recognized: badhint");
+          "JOIN hint not recognized: `badhint`");
       AnalysisError(
           String.format("select * from functional.alltypes a cross join %sshuffle%s " +
           "functional.alltypes b", prefix, suffix),
@@ -1680,7 +1680,7 @@ public class AnalyzeStmtsTest extends AnalyzerTest {
       AnalysisError(String.format(
           "select * from functional.alltypes a join %sbroadcast,shuffle%s " +
               "functional.alltypes b using (int_col)", prefix, suffix),
-          "Conflicting JOIN hint: shuffle");
+          "Conflicting JOIN hint: `shuffle`");
     }
   }
 
@@ -1709,7 +1709,7 @@ public class AnalyzeStmtsTest extends AnalyzerTest {
         String name = alias.isEmpty() ? "functional.alltypes" : alias;
         AnalyzesOk(String.format("select * from functional.alltypes %s %sFOO%s", alias,
             prefix, suffix), String.format("Table hint not recognized for table %s: " +
-            "FOO", name));
+            "`FOO`", name));
 
         // Table hints not supported for HBase tables
         AnalyzesOk(String.format("select * from functional_hbase.alltypes %s " +
@@ -1749,7 +1749,7 @@ public class AnalyzeStmtsTest extends AnalyzerTest {
         // Legacy hint style does not parse.
         AnalyzesOk(String.format(
             "select %sbadhint%s * from functional.alltypes", prefix, suffix),
-            "PLAN hint not recognized: badhint");
+            "PLAN hint not recognized: `badhint`");
         // Multiple hints. Legacy hint style does not parse.
         AnalyzesOk(String.format(
             "select %sstraight_join,straight_join%s * from functional.alltypes",
@@ -1780,7 +1780,7 @@ public class AnalyzeStmtsTest extends AnalyzerTest {
       AnalyzesOk(String.format("insert into functional.alltypessmall " +
           "partition (year, month) %sbadhint%s select * from functional.alltypes",
           prefix, suffix),
-          "INSERT hint not recognized: badhint");
+          "INSERT hint not recognized: `badhint`");
       // Insert hints are ok for unpartitioned tables.
       AnalyzesOk(String.format(
           "insert into table functional.alltypesnopart %sshuffle%s " +

@@ -510,7 +510,7 @@ public class ToSqlTest extends FrontendTestBase {
           InjectInsertHint("INSERT%s INTO TABLE functional.alltypes(int_col, " +
             "bool_col) PARTITION (year, month)%s " +
             "SELECT int_col, bool_col, year, month FROM functional.alltypes",
-            " \n-- +noshuffle\n", loc));
+            " \n-- +`noshuffle`\n", loc));
       testToSql(InjectInsertHint(
             "insert%s into functional.alltypes(int_col, bool_col) " +
             "partition(year, month)%s" +
@@ -519,7 +519,7 @@ public class ToSqlTest extends FrontendTestBase {
           InjectInsertHint("INSERT%s INTO TABLE functional.alltypes(int_col, " +
             "bool_col) PARTITION (year, month)%s " +
             "SELECT int_col, bool_col, year, month FROM functional.alltypes",
-            " \n-- +shuffle,clustered\n", loc));
+            " \n-- +`shuffle`,`clustered`\n", loc));
 
       // Upsert hint.
       testToSql(InjectInsertHint(
@@ -528,14 +528,14 @@ public class ToSqlTest extends FrontendTestBase {
           String.format(" %snoshuffle%s", prefix, suffix), loc),
           InjectInsertHint("UPSERT%s INTO TABLE functional_kudu.alltypes(id, int_col)" +
             "%s SELECT id, int_col FROM functional_kudu.alltypes",
-            " \n-- +noshuffle\n", loc));
+            " \n-- +`noshuffle`\n", loc));
       testToSql(InjectInsertHint(
             "upsert%s into functional_kudu.alltypes(id, int_col)%s" +
             "select id, int_col from functional_kudu.alltypes",
           String.format(" %sshuffle,clustered%s", prefix, suffix), loc),
           InjectInsertHint("UPSERT%s INTO TABLE functional_kudu.alltypes(id, int_col)" +
             "%s SELECT id, int_col FROM functional_kudu.alltypes",
-            " \n-- +shuffle,clustered\n", loc));
+            " \n-- +`shuffle`,`clustered`\n", loc));
     }
   }
 
@@ -557,28 +557,28 @@ public class ToSqlTest extends FrontendTestBase {
       testToSql(String.format(
           "select * from functional.alltypes a join %sbroadcast%s " +
           "functional.alltypes b on a.id = b.id", prefix, suffix),
-          "SELECT * FROM functional.alltypes a INNER JOIN \n-- +broadcast\n " +
+          "SELECT * FROM functional.alltypes a INNER JOIN \n-- +`broadcast`\n " +
           "functional.alltypes b ON a.id = b.id");
 
       // Table hint
       testToSql(String.format(
           "select * from functional.alltypes atp %sschedule_random_replica%s", prefix,
           suffix),
-          "SELECT * FROM functional.alltypes atp\n-- +schedule_random_replica\n");
+          "SELECT * FROM functional.alltypes atp\n-- +`schedule_random_replica`\n");
       testToSql(String.format(
           "select * from functional.alltypes %sschedule_random_replica%s", prefix,
           suffix),
-          "SELECT * FROM functional.alltypes\n-- +schedule_random_replica\n");
+          "SELECT * FROM functional.alltypes\n-- +`schedule_random_replica`\n");
       testToSql(String.format(
           "select * from functional.alltypes %sschedule_random_replica," +
           "schedule_disk_local%s", prefix, suffix),
-          "SELECT * FROM functional.alltypes\n-- +schedule_random_replica," +
-          "schedule_disk_local\n");
+          "SELECT * FROM functional.alltypes\n-- +`schedule_random_replica`," +
+          "`schedule_disk_local`\n");
       testToSql(String.format(
           "select c1 from (select atp.tinyint_col as c1 from functional.alltypes atp " +
           "%sschedule_random_replica%s) s1", prefix, suffix),
           "SELECT c1 FROM (SELECT atp.tinyint_col c1 FROM functional.alltypes atp\n-- +" +
-          "schedule_random_replica\n) s1");
+          "`schedule_random_replica`\n) s1");
 
       // Select-list hint. The legacy-style hint has no prefix and suffix.
       if (prefix.contains("[")) {
@@ -588,11 +588,11 @@ public class ToSqlTest extends FrontendTestBase {
       // Comment-style select-list plan hint.
       testToSql(String.format(
           "select %sstraight_join%s * from functional.alltypes", prefix, suffix),
-          "SELECT \n-- +straight_join\n * FROM functional.alltypes");
+          "SELECT \n-- +`straight_join`\n * FROM functional.alltypes");
       testToSql(
           String.format("select distinct %sstraight_join%s * from functional.alltypes",
           prefix, suffix),
-          "SELECT DISTINCT \n-- +straight_join\n * FROM functional.alltypes");
+          "SELECT DISTINCT \n-- +`straight_join`\n * FROM functional.alltypes");
     }
   }
 
@@ -1356,7 +1356,7 @@ public class ToSqlTest extends FrontendTestBase {
         "select * from functional.alltypes a " +
         "tablesample system(10) /* +schedule_random */",
         "SELECT * FROM functional.alltypes a " +
-        "TABLESAMPLE SYSTEM(10)\n-- +schedule_random\n");
+        "TABLESAMPLE SYSTEM(10)\n-- +`schedule_random`\n");
     testToSql(
         "with t as (select * from functional.alltypes tablesample system(5)) " +
         "select * from t",

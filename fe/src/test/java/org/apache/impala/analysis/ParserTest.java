@@ -243,6 +243,12 @@ public class ParserTest extends FrontendTestBase {
     ParserError("select 1 -- +hint_with_args(()\n");
   }
 
+  private static String GetActualHint(String hint) {
+    if (hint.startsWith("`") && hint.endsWith("`"))
+      return hint.substring(1, hint.length() - 1);
+    return hint;
+  }
+
   /**
    * Parses stmt and checks that the all table refs in stmt have the expected join hints.
    * The expectedHints contains the hints of all table refs from left to right (starting
@@ -255,7 +261,7 @@ public class ParserTest extends FrontendTestBase {
     assertTrue(selectStmt.getTableRefs().get(0).getJoinHints().isEmpty());
     for (int i = 1; i < selectStmt.getTableRefs().size(); ++i) {
       List<PlanHint> hints = selectStmt.getTableRefs().get(i).getJoinHints();
-      for (PlanHint hint: hints) actualHints.add(hint.toString());
+      for (PlanHint hint: hints) actualHints.add(GetActualHint(hint.toString()));
     }
     if (actualHints.isEmpty()) actualHints = Lists.newArrayList((String) null);
     assertEquals(Lists.newArrayList(expectedHints), actualHints);
@@ -267,7 +273,7 @@ public class ParserTest extends FrontendTestBase {
     List<String> actualHints = Lists.newArrayList();
     for (int i = 0; i < selectStmt.getTableRefs().size(); ++i) {
       List<PlanHint> hints = selectStmt.getTableRefs().get(i).getTableHints();
-      for (PlanHint hint: hints) actualHints.add(hint.toString());
+      for (PlanHint hint: hints) actualHints.add(GetActualHint(hint.toString()));
     }
     if (actualHints.isEmpty()) actualHints = Lists.newArrayList((String) null);
     assertEquals(Lists.newArrayList(expectedHints), actualHints);
@@ -279,9 +285,9 @@ public class ParserTest extends FrontendTestBase {
     List<String> actualHints = Lists.newArrayList();
     for (int i = 0; i < selectStmt.getTableRefs().size(); ++i) {
       List<PlanHint> joinHints = selectStmt.getTableRefs().get(i).getJoinHints();
-      for (PlanHint hint: joinHints) actualHints.add(hint.toString());
+      for (PlanHint hint: joinHints) actualHints.add(GetActualHint(hint.toString()));
       List<PlanHint> tableHints = selectStmt.getTableRefs().get(i).getTableHints();
-      for (PlanHint hint: tableHints) actualHints.add(hint.toString());
+      for (PlanHint hint: tableHints) actualHints.add(GetActualHint(hint.toString()));
     }
     if (actualHints.isEmpty()) actualHints = Lists.newArrayList((String) null);
     assertEquals(Lists.newArrayList(expectedHints), actualHints);
@@ -295,7 +301,7 @@ public class ParserTest extends FrontendTestBase {
     SelectStmt selectStmt = (SelectStmt) ParsesOk(stmt);
     List<String> actualHints = Lists.newArrayList();
     List<PlanHint> hints = selectStmt.getSelectList().getPlanHints();
-    for (PlanHint hint: hints) actualHints.add(hint.toString());
+    for (PlanHint hint: hints) actualHints.add(GetActualHint(hint.toString()));
     if (actualHints.isEmpty()) actualHints = Lists.newArrayList((String) null);
     assertEquals(Lists.newArrayList(expectedHints), actualHints);
   }
@@ -347,7 +353,8 @@ public class ParserTest extends FrontendTestBase {
   static private String[] HintsToStrings(List<PlanHint> hints) {
     if (hints.isEmpty()) return new String[] { null };
     String[] hintAsStrings = new String[hints.size()];
-    for (int i = 0; i < hints.size(); ++i) hintAsStrings[i] = hints.get(i).toString();
+    for (int i = 0; i < hints.size(); ++i)
+      hintAsStrings[i] = GetActualHint(hints.get(i).toString());
     return hintAsStrings;
   }
 
