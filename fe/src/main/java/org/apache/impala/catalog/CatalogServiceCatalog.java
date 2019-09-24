@@ -215,6 +215,9 @@ public class CatalogServiceCatalog extends Catalog {
   // sequence number assigned to catalog objects.
   private long catalogVersion_ = INITIAL_CATALOG_VERSION;
 
+  // The catalog version when we ran reset() last time.
+  private long lastResetCatalogVersion_ = INITIAL_CATALOG_VERSION;
+
   // Manages the scheduling of background table loading.
   private final TableLoadingMgr tableLoadingMgr_;
 
@@ -738,10 +741,12 @@ public class CatalogServiceCatalog extends Catalog {
     // pass overall state on the catalog, such as the current version and the
     // catalog service id. By setting the catalog version to the latest catalog
     // version at this point, it ensures impalads will always bump their versions,
-    // even in the case where an object has been dropped.
+    // even in the case where an object has been dropped. Also pass the catalog version
+    // when we reset the entire catalog last time. So coordinators in local catalog mode
+    // can safely forward their min catalog version.
     TCatalogObject catalog =
         new TCatalogObject(TCatalogObjectType.CATALOG, ctx.toVersion);
-    catalog.setCatalog(new TCatalog(catalogServiceId_));
+    catalog.setCatalog(new TCatalog(catalogServiceId_, lastResetCatalogVersion_));
     ctx.addCatalogObject(catalog, false);
     // Garbage collect the delete and topic update log.
     deleteLog_.garbageCollect(ctx.toVersion);
@@ -1476,8 +1481,8 @@ public class CatalogServiceCatalog extends Catalog {
    * effects of reset have been applied to its local catalog cache.
    */
   public long reset() throws CatalogException {
-    long currentCatalogVersion = getCatalogVersion();
-    LOG.info("Invalidating all metadata. Version: " + currentCatalogVersion);
+    lastResetCatalogVersion_ = getCatalogVersion();
+    LOG.info("Invalidating all metadata. Version: " + lastResetCatalogVersion_);
     // First update the policy metadata.
     refreshAuthorization(true);
 
@@ -1562,7 +1567,7 @@ public class CatalogServiceCatalog extends Catalog {
       metastoreEventProcessor_.start(currentEventId);
     }
     LOG.info("Invalidated all metadata.");
-    return currentCatalogVersion;
+    return lastResetCatalogVersion_;
   }
 
   /**

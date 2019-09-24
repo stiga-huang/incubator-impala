@@ -278,6 +278,12 @@ public class CatalogdMetaProvider implements MetaProvider {
       Catalog.INITIAL_CATALOG_VERSION);
 
   /**
+   * The last catalog version when catalogd reset the entire catalog. We can safely
+   * advance the min catalog version to this version.
+   */
+  private final AtomicLong lastResetCatalogVersion_ = new AtomicLong(-1);
+
+  /**
    * Tracks objects that have been deleted in response to a DDL issued from this
    * coordinator.
    */
@@ -1068,6 +1074,7 @@ public class CatalogdMetaProvider implements MetaProvider {
         // startup.
         nextCatalogVersion = obj.catalog_version;
         witnessCatalogServiceId(obj.catalog.catalog_service_id);
+        lastResetCatalogVersion_.set(obj.catalog.last_reset_catalog_version);
       }
     }
 
@@ -1088,31 +1095,11 @@ public class CatalogdMetaProvider implements MetaProvider {
       lastSeenCatalogVersion_.set(nextCatalogVersion);
     }
 
-    // TODO(IMPALA-7506) 'minVersion' here should be the minimum version of any object
-    // that we have in our cache. This is used to make global INVALIDATE METADATA'
-    // operations synchronous. The flow is as follows for v1 impalads:
-    //
-    // 1. catalogd records the current version number *before* invalidating anything
-    // 2. catalogd invalidates all DBs/tables
-    // 3. catalogd returns the version number calculated in step 1
-    // 4. impalad waits until it sees that the minVersion in its cache is greater than
-    //    the value above (i.e. that all objects known at the time the invalidation
-    //    was issued have been removed/updated
-    //
-    // This is difficult to implement with partial caching: we don't want to have to track
-    // the minimum version of all cached data. We should figure out some other way of
-    // detecting the completion of the invalidation.
-    //
-    // For now, we return -1 as an invalid version number and disallow running
-    // INVALIDATE METADATA in local-catalog mode. This return value is not used by
-    // any other operations. See IMPALA-7506.
-    long minVersion = -1;
-
     // NOTE: the return value is ignored when this function is called by a DDL
     // operation.
     synchronized (catalogServiceIdLock_) {
       return new TUpdateCatalogCacheResponse(catalogServiceId_,
-          minVersion, lastSeenCatalogVersion_.get());
+          lastResetCatalogVersion_.get() + 1, lastSeenCatalogVersion_.get());
     }
   }
 
