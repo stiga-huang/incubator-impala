@@ -215,6 +215,9 @@ public class CatalogServiceCatalog extends Catalog {
   // sequence number assigned to catalog objects.
   private long catalogVersion_ = INITIAL_CATALOG_VERSION;
 
+  // The catalog version when we ran reset() last time. Protected by versionLock_.
+  private long lastResetStartVersion_ = INITIAL_CATALOG_VERSION;
+
   // Manages the scheduling of background table loading.
   private final TableLoadingMgr tableLoadingMgr_;
 
@@ -598,15 +601,18 @@ public class CatalogServiceCatalog extends Catalog {
     // The from and to version of this delta.
     long fromVersion;
     long toVersion;
+    long lastResetStartVersion;
     // The keys of the updated topics.
     Set<String> updatedCatalogObjects;
     TSerializer serializer;
 
-    GetCatalogDeltaContext(long nativeCatalogServerPtr, long fromVersion, long toVersion)
+    GetCatalogDeltaContext(long nativeCatalogServerPtr, long fromVersion, long toVersion,
+        long lastResetStartVersion)
     {
       this.nativeCatalogServerPtr = nativeCatalogServerPtr;
       this.fromVersion = fromVersion;
       this.toVersion = toVersion;
+      this.lastResetStartVersion = lastResetStartVersion;
       updatedCatalogObjects = new HashSet<>();
       serializer = new TSerializer(new TBinaryProtocol.Factory());
     }
@@ -689,6 +695,10 @@ public class CatalogServiceCatalog extends Catalog {
       }
       return min;
     }
+
+    public boolean versionNotInRange(long version) {
+      return version <= fromVersion || version > toVersion;
+    }
   }
 
   /**
@@ -704,8 +714,15 @@ public class CatalogServiceCatalog extends Catalog {
    */
   public long getCatalogDelta(long nativeCatalogServerPtr, long fromVersion) throws
       TException {
-    GetCatalogDeltaContext ctx = new GetCatalogDeltaContext(nativeCatalogServerPtr,
-        fromVersion, getCatalogVersion());
+    GetCatalogDeltaContext ctx;
+    // Get lock to read catalogVersion_ and lastResetStartVersion_
+    versionLock_.readLock().lock();
+    try {
+      ctx = new GetCatalogDeltaContext(nativeCatalogServerPtr, fromVersion,
+          catalogVersion_, lastResetStartVersion_);
+    } finally {
+      versionLock_.readLock().unlock();
+    }
     for (Db db: getAllDbs()) {
       addDatabaseToCatalogDelta(db, ctx);
     }
@@ -738,10 +755,12 @@ public class CatalogServiceCatalog extends Catalog {
     // pass overall state on the catalog, such as the current version and the
     // catalog service id. By setting the catalog version to the latest catalog
     // version at this point, it ensures impalads will always bump their versions,
-    // even in the case where an object has been dropped.
+    // even in the case where an object has been dropped. Also pass the catalog version
+    // when we reset the entire catalog last time. So coordinators in local catalog mode
+    // can safely forward their min catalog version.
     TCatalogObject catalog =
         new TCatalogObject(TCatalogObjectType.CATALOG, ctx.toVersion);
-    catalog.setCatalog(new TCatalog(catalogServiceId_));
+    catalog.setCatalog(new TCatalog(catalogServiceId_, ctx.lastResetStartVersion));
     ctx.addCatalogObject(catalog, false);
     // Garbage collect the delete and topic update log.
     deleteLog_.garbageCollect(ctx.toVersion);
@@ -1145,7 +1164,7 @@ public class CatalogServiceCatalog extends Catalog {
   private void addFunctionToCatalogDelta(Function fn, GetCatalogDeltaContext ctx)
       throws TException {
     long fnVersion = fn.getCatalogVersion();
-    if (fnVersion <= ctx.fromVersion || fnVersion > ctx.toVersion) return;
+    if (ctx.versionNotInRange(fnVersion)) return;
     TCatalogObject function =
         new TCatalogObject(TCatalogObjectType.FUNCTION, fnVersion);
     function.setFn(fn.toThrift());
@@ -1159,7 +1178,7 @@ public class CatalogServiceCatalog extends Catalog {
   private void addDataSourceToCatalogDelta(DataSource dataSource,
       GetCatalogDeltaContext ctx) throws TException  {
     long dsVersion = dataSource.getCatalogVersion();
-    if (dsVersion <= ctx.fromVersion || dsVersion > ctx.toVersion) return;
+    if (ctx.versionNotInRange(dsVersion)) return;
     TCatalogObject catalogObj =
         new TCatalogObject(TCatalogObjectType.DATA_SOURCE, dsVersion);
     catalogObj.setData_source(dataSource.toThrift());
@@ -1173,9 +1192,7 @@ public class CatalogServiceCatalog extends Catalog {
   private void addHdfsCachePoolToCatalogDelta(HdfsCachePool cachePool,
       GetCatalogDeltaContext ctx) throws TException  {
     long cpVersion = cachePool.getCatalogVersion();
-    if (cpVersion <= ctx.fromVersion || cpVersion > ctx.toVersion) {
-      return;
-    }
+    if (ctx.versionNotInRange(cpVersion)) return;
     TCatalogObject pool =
         new TCatalogObject(TCatalogObjectType.HDFS_CACHE_POOL, cpVersion);
     pool.setCache_pool(cachePool.toThrift());
@@ -1191,7 +1208,7 @@ public class CatalogServiceCatalog extends Catalog {
   private void addPrincipalToCatalogDelta(Principal principal, GetCatalogDeltaContext ctx)
       throws TException {
     long principalVersion = principal.getCatalogVersion();
-    if (principalVersion > ctx.fromVersion && principalVersion <= ctx.toVersion) {
+    if (!ctx.versionNotInRange(principalVersion)) {
       TCatalogObject thriftPrincipal =
           new TCatalogObject(TCatalogObjectType.PRINCIPAL, principalVersion);
       thriftPrincipal.setPrincipal(principal.toThrift());
@@ -1222,7 +1239,7 @@ public class CatalogServiceCatalog extends Catalog {
   private void addPrincipalPrivilegeToCatalogDelta(PrincipalPrivilege priv,
       GetCatalogDeltaContext ctx) throws TException  {
     long privVersion = priv.getCatalogVersion();
-    if (privVersion <= ctx.fromVersion || privVersion > ctx.toVersion) return;
+    if (ctx.versionNotInRange(privVersion)) return;
     TCatalogObject privilege =
         new TCatalogObject(TCatalogObjectType.PRIVILEGE, privVersion);
     privilege.setPrivilege(priv.toThrift());
@@ -1237,8 +1254,7 @@ public class CatalogServiceCatalog extends Catalog {
       AuthzCacheInvalidation authzCacheInvalidation, GetCatalogDeltaContext ctx)
       throws TException  {
     long authzCacheInvalidationVersion = authzCacheInvalidation.getCatalogVersion();
-    if (authzCacheInvalidationVersion <= ctx.fromVersion ||
-        authzCacheInvalidationVersion > ctx.toVersion) return;
+    if (ctx.versionNotInRange(authzCacheInvalidationVersion)) return;
     TCatalogObject catalogObj = new TCatalogObject(
         TCatalogObjectType.AUTHZ_CACHE_INVALIDATION, authzCacheInvalidationVersion);
     catalogObj.setAuthz_cache_invalidation(authzCacheInvalidation.toThrift());
@@ -1476,8 +1492,8 @@ public class CatalogServiceCatalog extends Catalog {
    * effects of reset have been applied to its local catalog cache.
    */
   public long reset() throws CatalogException {
-    long currentCatalogVersion = getCatalogVersion();
-    LOG.info("Invalidating all metadata. Version: " + currentCatalogVersion);
+    long startVersion = getCatalogVersion();
+    LOG.info("Invalidating all metadata. Version: " + startVersion);
     // First update the policy metadata.
     refreshAuthorization(true);
 
@@ -1557,12 +1573,16 @@ public class CatalogServiceCatalog extends Catalog {
       LOG.error("Error initializing Catalog", e);
       throw new CatalogException("Error initializing Catalog. Catalog may be empty.", e);
     } finally {
+      // It's possible that concurrent reset() gets a startVersion later than us but
+      // acquires the version lock before us so the lastResetStartVersion_ is already
+      // bumped. Don't need to update it in this case.
+      if (lastResetStartVersion_ < startVersion) lastResetStartVersion_ = startVersion;
       versionLock_.writeLock().unlock();
       // restart the event processing for id just before the reset
       metastoreEventProcessor_.start(currentEventId);
     }
     LOG.info("Invalidated all metadata.");
-    return currentCatalogVersion;
+    return startVersion;
   }
 
   /**

@@ -56,13 +56,11 @@ class TestRanger(CustomClusterTestSuite):
   @pytest.mark.execute_serially
   @CustomClusterTestSuite.with_args(
     impalad_args="{0} {1}".format(IMPALAD_ARGS, "--use_local_catalog=true"),
-    catalogd_args="{0} {1}".format(CATALOGD_ARGS,
-                                   "--use_local_catalog=true "
-                                   "--catalog_topic_mode=minimal"))
+    catalogd_args="{0} {1}".format(CATALOGD_ARGS, "--catalog_topic_mode=minimal"))
   def test_grant_revoke_with_local_catalog(self, unique_name):
     """Tests grant/revoke with catalog v2 (local catalog)."""
-    # Catalog v2 does not support global invalidate metadata.
-    self._test_grant_revoke(unique_name, [None, "refresh authorization"])
+    self._test_grant_revoke(unique_name, [None, "invalidate metadata",
+                                          "refresh authorization"])
 
   def _test_grant_revoke(self, unique_name, refresh_statements):
     user = getuser()

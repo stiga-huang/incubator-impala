@@ -1542,6 +1542,7 @@ Status ImpalaServer::AuthorizeProxyUser(const string& user, const string& do_as_
 void ImpalaServer::CatalogUpdateVersionInfo::UpdateCatalogVersionMetrics()
 {
   ImpaladMetrics::CATALOG_VERSION->SetValue(catalog_version);
+  ImpaladMetrics::MIN_CATALOG_OBJECT_VERSION->SetValue(min_catalog_object_version);
   ImpaladMetrics::CATALOG_TOPIC_VERSION->SetValue(catalog_topic_version);
   ImpaladMetrics::CATALOG_SERVICE_ID->SetValue(PrintId(catalog_service_id));
 }
