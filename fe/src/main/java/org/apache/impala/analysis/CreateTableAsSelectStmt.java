@@ -33,6 +33,7 @@ import org.apache.impala.catalog.HdfsFileFormat;
 import org.apache.impala.catalog.KuduTable;
 import org.apache.impala.catalog.Type;
 import org.apache.impala.common.AnalysisException;
+import org.apache.impala.compat.MetastoreShim;
 import org.apache.impala.rewrite.ExprRewriter;
 import org.apache.impala.service.CatalogOpExecutor;
 import org.apache.impala.thrift.THdfsFileFormat;
@@ -215,7 +216,8 @@ public class CreateTableAsSelectStmt extends StatementBase {
       // Set a valid location of this table using the same rules as the metastore, unless
       // the user specified a path.
       if (msTbl.getSd().getLocation() == null || msTbl.getSd().getLocation().isEmpty()) {
-        msTbl.getSd().setLocation(getPathForNewTable(db, msTbl));
+        msTbl.getSd().setLocation(MetastoreShim.getNonAcidManagedTablePath(
+            db.getMetaStoreDb(), msTbl.getTableName().toLowerCase()));
       }
 
       FeTable tmpTable = null;
@@ -236,11 +238,6 @@ public class CreateTableAsSelectStmt extends StatementBase {
 
     // Finally, run analysis on the insert statement.
     insertStmt_.analyze(analyzer);
-  }
-
-  private static String getPathForNewTable(FeDb db, Table msTbl) {
-    String dbLocation = db.getMetaStoreDb().getLocationUri();
-    return new Path(dbLocation, msTbl.getTableName().toLowerCase()).toString();
   }
 
   @Override

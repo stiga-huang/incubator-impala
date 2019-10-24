@@ -40,6 +40,7 @@ import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.LockRequestBuilder;
@@ -47,6 +48,7 @@ import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.metastore.api.ColumnStatistics;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
+import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.InvalidInputException;
 import org.apache.hadoop.hive.metastore.api.InvalidObjectException;
@@ -932,4 +934,19 @@ public class MetastoreShim {
      }
   }
 
+  /**
+   * Return the default table path.
+   *
+   * Hive-3 not allows managed table to be non transactional (HIVE-22158). Creating a non
+   * transactional managed table will finally results in an external table with table
+   * property "external.table.purge" set to true. As the table type become EXTERNAL, the
+   * location will be under "metastore.warehouse.external.dir" (HIVE-19837, introduces in
+   * hive-2.7, not in hive-2.1.x-cdh6.x yet).
+   */
+  public static String getNonAcidManagedTablePath(Database db, String tableName)
+      throws MetaException {
+    Warehouse wh = new Warehouse(new HiveConf());
+    // Non ACID managed tables are all translated to external tables (HIVE-22158)
+    return wh.getDefaultTablePath(db, tableName, /*isExternal*/ true).toString();
+  }
 }
