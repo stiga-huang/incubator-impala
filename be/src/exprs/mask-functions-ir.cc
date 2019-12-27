@@ -18,8 +18,12 @@
 #include "exprs/mask-functions.h"
 
 #include <gutil/strings/substitute.h>
+#include <openssl/err.h>
+#include <openssl/sha.h>
 
 #include "exprs/anyval-util.h"
+#include "exprs/math-functions.h"
+#include "exprs/string-functions.h"
 #include "util/ubsan.h"
 
 #include "common/names.h"
@@ -567,4 +571,28 @@ BigIntVal MaskFunctions::Mask(FunctionContext* ctx, const BigIntVal& val,
     const IntVal& month_value, const IntVal& year_value) {
   if (number_char.val == UNMASKED_VAL) return val;
   return {MaskShowFirstNImpl(val.val, 0, number_char.val)};
+}
+
+StringVal MaskFunctions::MaskHash(FunctionContext* ctx, const StringVal& val) {
+  // Hive hash the value by sha256 and encoding it into a lower case hex string.
+  StringVal sha256_hash(ctx, SHA256_DIGEST_LENGTH);
+  if (UNLIKELY(sha256_hash.is_null)) return StringVal::null();
+  (void)SHA256(val.ptr, val.len, sha256_hash.ptr);
+  return StringFunctions::Lower(ctx, MathFunctions::HexString(ctx, sha256_hash));
+}
+// For other types, the hash values are always NULL.
+BigIntVal MaskFunctions::MaskHash(FunctionContext* ctx, const BigIntVal& val) {
+  return BigIntVal::null();
+}
+DoubleVal MaskFunctions::MaskHash(FunctionContext* ctx, const DoubleVal& val) {
+  return DoubleVal::null();
+}
+BooleanVal MaskFunctions::MaskHash(FunctionContext* ctx, const BooleanVal& val) {
+  return BooleanVal::null();
+}
+TimestampVal MaskFunctions::MaskHash(FunctionContext* ctx, const TimestampVal& val) {
+  return TimestampVal::null();
+}
+DateVal MaskFunctions::MaskHash(FunctionContext* ctx, const DateVal& val) {
+  return DateVal::null();
 }

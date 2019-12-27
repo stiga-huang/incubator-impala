@@ -881,6 +881,12 @@ visible_functions = [
       'impala::MaskFunctions::Mask'],
   [['mask'], 'DATE', ['DATE', 'STRING', 'STRING', 'STRING', 'STRING', 'INT', 'INT', 'INT', 'INT'],
       'impala::MaskFunctions::Mask'],
+  [['mask_hash'], 'STRING', ['STRING'], 'impala::MaskFunctions::MaskHash'],
+  [['mask_hash'], 'BIGINT', ['BIGINT'], 'impala::MaskFunctions::MaskHash'],
+  [['mask_hash'], 'DOUBLE', ['DOUBLE'], 'impala::MaskFunctions::MaskHash'],
+  [['mask_hash'], 'BOOLEAN', ['BOOLEAN'], 'impala::MaskFunctions::MaskHash'],
+  [['mask_hash'], 'TIMESTAMP', ['TIMESTAMP'], 'impala::MaskFunctions::MaskHash'],
+  [['mask_hash'], 'DATE', ['DATE'], 'impala::MaskFunctions::MaskHash'],
 ]
 
 invisible_functions = [

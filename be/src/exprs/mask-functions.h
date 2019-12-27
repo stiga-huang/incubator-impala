@@ -38,7 +38,7 @@ using impala_udf::DecimalVal;
 
 class MaskFunctions {
  public:
-  /// Implementations of mask_show_first_n()
+  /// Declarations of mask_show_first_n()
   /// Overloads for masking a string value
   static StringVal MaskShowFirstN(FunctionContext* ctx, const StringVal& val);
   static StringVal MaskShowFirstN(FunctionContext* ctx, const StringVal& val,
@@ -62,7 +62,7 @@ class MaskFunctions {
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
 
-  /// Implementations of mask_show_last_n()
+  /// Declarations of mask_show_last_n()
   /// Overloads for masking a string value
   static StringVal MaskShowLastN(FunctionContext* ctx, const StringVal& val);
   static StringVal MaskShowLastN(FunctionContext* ctx, const StringVal& val,
@@ -86,7 +86,7 @@ class MaskFunctions {
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
 
-  /// Implementations of mask_first_n()
+  /// Declarations of mask_first_n()
   /// Overloads for masking a string value
   static StringVal MaskFirstN(FunctionContext* ctx, const StringVal& val);
   static StringVal MaskFirstN(FunctionContext* ctx, const StringVal& val,
@@ -110,7 +110,7 @@ class MaskFunctions {
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
 
-  /// Implementations of mask_first_n()
+  /// Declarations of mask_first_n()
   /// Overloads for masking a string value
   static StringVal MaskLastN(FunctionContext* ctx, const StringVal& val);
   static StringVal MaskLastN(FunctionContext* ctx, const StringVal& val,
@@ -134,7 +134,7 @@ class MaskFunctions {
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
 
-  /// Implementations of mask()
+  /// Declarations of mask()
   /// Overloads for masking a string value
   static StringVal Mask(FunctionContext* ctx, const StringVal& val);
   static StringVal Mask(FunctionContext* ctx, const StringVal& val,
@@ -179,6 +179,14 @@ class MaskFunctions {
       const IntVal& upper_char, const IntVal& lower_char, const IntVal& digit_char,
       const IntVal& other_char, const IntVal& number_char, const IntVal& day_value,
       const IntVal& month_value, const IntVal& year_value);
+
+  /// Declarations of mask_hash()
+  static StringVal MaskHash(FunctionContext* ctx, const StringVal& val);
+  static BigIntVal MaskHash(FunctionContext* ctx, const BigIntVal& val);
+  static DoubleVal MaskHash(FunctionContext* ctx, const DoubleVal& val);
+  static BooleanVal MaskHash(FunctionContext* ctx, const BooleanVal& val);
+  static TimestampVal MaskHash(FunctionContext* ctx, const TimestampVal& val);
+  static DateVal MaskHash(FunctionContext* ctx, const DateVal& val);
 };
 
 } // namespace impala
