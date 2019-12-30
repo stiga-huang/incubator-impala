@@ -10076,6 +10076,28 @@ TEST_P(ExprTest, JsonTest) {
   TestErrorString("get_json_object('[1,2,3]', '   ')",
       "Failed to parse json path '   ': Should start with '$'\n");
 }
+
+TEST_P(ExprTest, MaskTest) {
+  // Replace upper case with 'X', lower case with 'x', digit chars with '0', other chars
+  // with ':'.
+  TestStringValue("mask_show_first_n('TestString-123', 4, 'X', 'x', '0', ':')",
+      "TestXxxxxx:000");
+  TestStringValue(
+      "mask_show_first_n(cast('TestString-123' as varchar(24)), 4, 'X', 'x', '0', ':')",
+      "TestXxxxxx:000");
+  TestStringValue(
+      "mask_show_first_n(cast('TestString-123' as char(24)), 4, 'X', 'x', '0', ':')",
+      "TestXxxxxx:000::::::::::");
+  TestStringValue("mask_show_first_n(cast(123 as tinyint), 2, 'x', 'x', 'x', -1, '5')", "125");
+  TestStringValue("mask_show_first_n(cast(12345 as smallint), 3, 'x', 'x', 'x', -1, '5')", "12355");
+  TestStringValue("mask_show_first_n(cast(12345 as int), 4, -1, -1, -1, -1, '5')", "12345");
+  TestStringValue("mask_show_first_n(cast(12345 as bigint), 4, -1, -1, -1, -1, '5')", "12345");
+  TestStringValue("mask_show_first_n(cast('2016-04-20' as date), 4, -1, -1, -1, -1, -1, 0, 0, 0)", "0001-01-01");
+  TestStringValue("mask_show_first_n('abcdefgABCDEFG12345-#')", "abcdxxxXXXXXXXnnnnn-#");
+  TestStringValue("mask_show_first_n('abcdefgABCDEFG12345-#', 4, '*', '*', '*', '*')",
+      "abcd*****************");
+}
+
 } // namespace impala
 
 INSTANTIATE_TEST_CASE_P(Instantiations, ExprTest, ::testing::Values(

@@ -45,8 +45,18 @@ class MaskFunctions {
       const IntVal& char_count);
   static StringVal MaskShowFirstN(FunctionContext* ctx, const StringVal& val,
       const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const StringVal& other_char);
+  static StringVal MaskShowFirstN(FunctionContext* ctx, const StringVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
+  // The default transformer of MASK_SHOW_FIRST_4 mask type is
+  //   mask_show_first_n({col}, 4, 'x', 'x', 'x', -1, '1')
+  // So we need this overload.
+  static StringVal MaskShowFirstN(FunctionContext* ctx, const StringVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char);
   static StringVal MaskShowFirstN(FunctionContext* ctx, const StringVal& val,
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
@@ -59,6 +69,10 @@ class MaskFunctions {
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
   static BigIntVal MaskShowFirstN(FunctionContext* ctx, const BigIntVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char);
+  static BigIntVal MaskShowFirstN(FunctionContext* ctx, const BigIntVal& val,
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
 
@@ -69,8 +83,18 @@ class MaskFunctions {
       const IntVal& char_count);
   static StringVal MaskShowLastN(FunctionContext* ctx, const StringVal& val,
       const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const StringVal& other_char);
+  static StringVal MaskShowLastN(FunctionContext* ctx, const StringVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
+  // The default transformer of MASK_SHOW_LAST_4 mask type is
+  //   mask_show_last_n({col}, 4, 'x', 'x', 'x', -1, '1')
+  // So we need this overload.
+  static StringVal MaskShowLastN(FunctionContext* ctx, const StringVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char);
   static StringVal MaskShowLastN(FunctionContext* ctx, const StringVal& val,
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
@@ -82,6 +106,10 @@ class MaskFunctions {
       const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
+  static BigIntVal MaskShowLastN(FunctionContext* ctx, const BigIntVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char);
   static BigIntVal MaskShowLastN(FunctionContext* ctx, const BigIntVal& val,
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
@@ -142,8 +170,19 @@ class MaskFunctions {
       const StringVal& digit_char, const StringVal& other_char);
   static StringVal Mask(FunctionContext* ctx, const StringVal& val,
       const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char);
+  static StringVal Mask(FunctionContext* ctx, const StringVal& val,
+      const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char, const IntVal& day_value, const IntVal& month_value,
+      const IntVal& year_value);
+  // The default transformer of MASK_DATE_SHOW_YEAR mask type is
+  //   mask({col}, 'x', 'x', 'x', -1, '1', 1, 0, -1)
+  // So we need this overload.
+  static StringVal Mask(FunctionContext* ctx, const StringVal& val,
+      const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char, const IntVal& day_value, const IntVal& month_value,
       const IntVal& year_value);
   static StringVal Mask(FunctionContext* ctx, const StringVal& val,
       const IntVal& upper_char, const IntVal& lower_char, const IntVal& digit_char,
@@ -174,6 +213,14 @@ class MaskFunctions {
       const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char, const IntVal& day_value, const IntVal& month_value,
+      const IntVal& year_value);
+  // The default transformer of MASK_DATE_SHOW_YEAR mask type is
+  //   mask({col}, 'x', 'x', 'x', -1, '1', 1, 0, -1)
+  // So we need this overload.
+  static BigIntVal Mask(FunctionContext* ctx, const BigIntVal& val,
+      const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char, const IntVal& day_value, const IntVal& month_value,
       const IntVal& year_value);
   static BigIntVal Mask(FunctionContext* ctx, const BigIntVal& val,
       const IntVal& upper_char, const IntVal& lower_char, const IntVal& digit_char,
