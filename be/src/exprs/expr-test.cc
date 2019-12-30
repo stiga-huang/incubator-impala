@@ -10077,7 +10077,8 @@ TEST_P(ExprTest, JsonTest) {
       "Failed to parse json path '   ': Should start with '$'\n");
 }
 
-TEST_P(ExprTest, MaskTest) {
+TEST_P(ExprTest, MaskShowFirstNTest) {
+  // Test overrides for string value.
   // Replace upper case with 'X', lower case with 'x', digit chars with '0', other chars
   // with ':'.
   TestStringValue("mask_show_first_n('TestString-123', 4, 'X', 'x', '0', ':')",
@@ -10088,14 +10089,48 @@ TEST_P(ExprTest, MaskTest) {
   TestStringValue(
       "mask_show_first_n(cast('TestString-123' as char(24)), 4, 'X', 'x', '0', ':')",
       "TestXxxxxx:000::::::::::");
-  TestStringValue("mask_show_first_n(cast(123 as tinyint), 2, 'x', 'x', 'x', -1, '5')", "125");
-  TestStringValue("mask_show_first_n(cast(12345 as smallint), 3, 'x', 'x', 'x', -1, '5')", "12355");
-  TestStringValue("mask_show_first_n(cast(12345 as int), 4, -1, -1, -1, -1, '5')", "12345");
-  TestStringValue("mask_show_first_n(cast(12345 as bigint), 4, -1, -1, -1, -1, '5')", "12345");
-  TestStringValue("mask_show_first_n(cast('2016-04-20' as date), 4, -1, -1, -1, -1, -1, 0, 0, 0)", "0001-01-01");
-  TestStringValue("mask_show_first_n('abcdefgABCDEFG12345-#')", "abcdxxxXXXXXXXnnnnn-#");
-  TestStringValue("mask_show_first_n('abcdefgABCDEFG12345-#', 4, '*', '*', '*', '*')",
-      "abcd*****************");
+  TestStringValue("mask_show_first_n('abcdeABCDE12345-#')", "abcdxXXXXXnnnnn-#");
+  TestStringValue("mask_show_first_n('abcdeABCDE12345-#', 0)", "xxxxxXXXXXnnnnn-#");
+  TestStringValue("mask_show_first_n('abcdeABCDE12345-#', -1)", "xxxxxXXXXXnnnnn-#");
+  TestStringValue("mask_show_first_n('abcdeABCDE12345-#', 2)", "abxxxXXXXXnnnnn-#");
+  TestStringValue("mask_show_first_n('abcdeABCDE12345-#', 100)", "abcdeABCDE12345-#");
+  TestStringValue("mask_show_first_n('abcdeABCDE12345-#', 3, '*', '*', '*', '*', 1)",
+      "abc**************");  // The last argument 1 is unused since the value is string.
+  // Most importantly, test the override used by Ranger transformer.
+  TestStringValue("mask_show_first_n('abcdeABCDE12345-#', 4, 'x', 'x', 'x', -1, '1')",
+      "abcdxxxxxxxxxxx-#");
+  TestStringValue("mask_show_first_n('abcdeABCDE12345-#', 0, '*', '*', '*', -1, '9')",
+      "***************-#");
+  // Test all int arguments. 65 = 'A', 97 = 'a', 48 = '0'.
+  TestStringValue("mask_show_first_n('abcdeABCDE12345-#', 0, 65, 97, 48, -1, 9)",
+      "aaaaaAAAAA00000-#");
+  TestStringValue("mask_show_first_n('abcdeABCDE12345-#', 4, -1, -1, -1, -1, 9)",
+      "abcdeABCDE12345-#");
+
+  // Test overrides for numeric value.
+  TestValue("mask_show_first_n(cast(123 as tinyint), 2, 'x', 'x', 'x', -1, '5')",
+      TYPE_BIGINT, 125);
+  TestValue("mask_show_first_n(cast(12345 as smallint), 3, 'x', 'x', 'x', -1, '5')",
+      TYPE_BIGINT, 12355);
+  TestValue("mask_show_first_n(cast(12345 as int), 0, 'x', 'x', 'x', 'x', 5)",
+      TYPE_BIGINT, 55555);
+  TestValue("mask_show_first_n(cast(12345 as bigint), 4, -1, -1, -1, -1, -1)",
+      TYPE_BIGINT, 12345);
+  TestValue("mask_show_first_n(12345678)", TYPE_BIGINT, 12341111);
+  TestValue("mask_show_first_n(12345678, 0)", TYPE_BIGINT, 11111111);
+  TestValue("mask_show_first_n(12345678, -1)", TYPE_BIGINT, 11111111);
+  TestValue("mask_show_first_n(12345678, 2)", TYPE_BIGINT, 12111111);
+  TestValue("mask_show_first_n(12345678, 100)", TYPE_BIGINT, 12345678);
+  TestValue("mask_show_first_n(12345678, 3, '*', '*', '*', '*', 2)", TYPE_BIGINT,
+      12322222);  // Only the last mask argument 2 is unused since the value is numeric.
+  // Most importantly, test the override used by Ranger transformer.
+  TestValue("mask_show_first_n(12345678, 4, 'x', 'x', 'x', -1, '1')", TYPE_BIGINT,
+      12341111);
+  TestValue("mask_show_first_n(12345678, 0, '*', '*', '*', -1, '9')", TYPE_BIGINT,
+      99999999);
+  // Test all int arguments. 65 = 'A', 97 = 'a', 48 = '0'.
+  TestValue("mask_show_first_n(12345678, 0, 65, 97, 48, -1, 9)", TYPE_BIGINT, 99999999);
+  TestValue("mask_show_first_n(12345678, 4, -1, -1, -1, -1, -1)", TYPE_BIGINT,12345678);
 }
 
 } // namespace impala
