@@ -10385,6 +10385,23 @@ TEST_P(ExprTest, MaskLastNTest) {
       -1410065407);
 }
 
+TEST_P(ExprTest, MaskHashTest) {
+  TestStringValue("mask_hash('TestString-123')",
+      "8b44d559dc5d60e4453c9b4edf2a455fbce054bb8504cd3eb9b5f391bd239c90");
+  TestStringValue("mask_hash(cast('TestString-123' as varchar(24)))",
+      "8b44d559dc5d60e4453c9b4edf2a455fbce054bb8504cd3eb9b5f391bd239c90");
+  TestStringValue("mask_hash(cast('TestString-123' as char(24)))",
+      "30a88603135d3a6f7a66b4f9193da1ab4423aed45fb8fe736c2f2a08977f2bdd");
+  TestIsNull("mask_hash(cast(123 as tinyint))", TYPE_BIGINT);
+  TestIsNull("mask_hash(cast(12345 as smallint))", TYPE_BIGINT);
+  TestIsNull("mask_hash(cast(12345 as int))", TYPE_BIGINT);
+  TestIsNull("mask_hash(cast(12345 as bigint))", TYPE_BIGINT);
+  TestIsNull("mask_hash(cast(1 as boolean))", TYPE_BOOLEAN);
+  TestIsNull("mask_hash(cast(12345 as double))", TYPE_DOUBLE);
+  TestIsNull("mask_hash(cast('2016-04-20' as date))", TYPE_DATE);
+  TestIsNull("mask_hash(cast('2016-04-20' as timestamp))", TYPE_TIMESTAMP);
+}
+
 } // namespace impala
 
 INSTANTIATE_TEST_CASE_P(Instantiations, ExprTest, ::testing::Values(
