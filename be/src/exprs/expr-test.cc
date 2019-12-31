@@ -10248,12 +10248,12 @@ TEST_P(ExprTest, MaskFirstNTest) {
   TestStringValue("mask_first_n('abcdeABCDE12345-#', 0)", "abcdeABCDE12345-#");
   TestStringValue("mask_first_n('abcdeABCDE12345-#', -1)", "abcdeABCDE12345-#");
   TestStringValue("mask_first_n('abcdeABCDE12345-#', 2)", "xxcdeABCDE12345-#");
-  TestStringValue("mask_first_n('abcdeABCDE12345-#', 100)", "abcdeABCDE12345-#");
+  TestStringValue("mask_first_n('abcdeABCDE12345-#', 100)", "xxxxxXXXXXnnnnn-#");
   TestStringValue("mask_first_n('abcdeABCDE12345-#', 3, '*', '*', '*', '*', 1)",
       "***deABCDE12345-#");  // The last argument 1 is unused since the value is string.
   // Most importantly, test the override used by Ranger transformer.
   TestStringValue("mask_first_n('abcdeABCDE12345-#', 4, 'x', 'x', 'x', -1, '1')",
-      "****eABCDE12345-#");
+      "xxxxeABCDE12345-#");
   TestStringValue("mask_first_n('abcdeABCDE12345-#', 0, '*', '*', '*', -1, '9')",
       "abcdeABCDE12345-#");
   // Test all int arguments. 65 = 'A', 97 = 'a', 48 = '0'.
@@ -10287,7 +10287,6 @@ TEST_P(ExprTest, MaskFirstNTest) {
       -999999999);
   // Test all int arguments. 65 = 'A', 97 = 'a', 48 = '0'.
   TestValue("mask_first_n(12345678, 10, 65, 97, 48, -1, 9)", TYPE_BIGINT, 99999999);
-  TestValue("mask_first_n(12345678, 4, -1, -1, -1, -1, -1)", TYPE_BIGINT,12345678);
   // Illegal masked_number (not in [0, 9]) is converted to default value 1.
   TestValue("mask_first_n(12345678, 4, -1, -1, -1, -1, 10)", TYPE_BIGINT, 11115678);
   TestValue("mask_first_n(12345678, 4, -1, -1, -1, -1, -1)", TYPE_BIGINT, 11115678);
@@ -10342,13 +10341,13 @@ TEST_P(ExprTest, MaskLastNTest) {
 
   // Test overrides for numeric value.
   TestValue("mask_last_n(cast(123 as tinyint), 2, 'x', 'x', 'x', -1, '5')",
-      TYPE_BIGINT, 125);
+      TYPE_BIGINT, 155);
   TestValue("mask_last_n(cast(12345 as smallint), 3, 'x', 'x', 'x', -1, '5')",
       TYPE_BIGINT, 12555);
   TestValue("mask_last_n(cast(12345 as int), 10, 'x', 'x', 'x', 'x', 5)",
       TYPE_BIGINT, 55555);
   TestValue("mask_last_n(cast(12345 as bigint), 4, -1, -1, -1, -1, -1)",
-      TYPE_BIGINT, 12345);
+      TYPE_BIGINT, 11111);
   TestValue("mask_last_n(123456789)", TYPE_BIGINT, 123451111);
   TestValue("mask_last_n(123456789, 0)", TYPE_BIGINT, 123456789);
   TestValue("mask_last_n(123456789, -1)", TYPE_BIGINT, 123456789);

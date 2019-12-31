@@ -179,6 +179,7 @@ static inline BigIntVal MaskShowLastNImpl(const BigIntVal& val, int un_mask_char
   // The sign won't be masked.
   if (val.val < 0) unsigned_val = -unsigned_val;
   int num_digits = GetNumDigits(unsigned_val);
+  if (num_digits <= un_mask_char_count) return val;
   int base = 1;
   for (int i = 0; i < un_mask_char_count; ++i) base *= 10;
   int64_t result = unsigned_val % base;
@@ -195,7 +196,7 @@ static inline BigIntVal MaskShowLastNImpl(const BigIntVal& val, int un_mask_char
 /// 'masked_number'.
 static inline BigIntVal MaskFirstNImpl(const BigIntVal& val, int mask_char_count,
     int masked_number) {
-  if (val.is_null || masked_number == UNMASKED_VAL) return val;
+  if (val.is_null) return val;
   int num_digits = GetNumDigits(val.val);
   if (num_digits < mask_char_count) mask_char_count = num_digits;
   return MaskShowLastNImpl(val, num_digits - mask_char_count, masked_number);
@@ -205,7 +206,7 @@ static inline BigIntVal MaskFirstNImpl(const BigIntVal& val, int mask_char_count
 /// 'masked_number'.
 static inline BigIntVal MaskLastNImpl(const BigIntVal& val, int mask_char_count,
     int masked_number) {
-  if (val.is_null || masked_number == UNMASKED_VAL) return val;
+  if (val.is_null) return val;
   int num_digits = GetNumDigits(val.val);
   if (num_digits < mask_char_count) mask_char_count = num_digits;
   return MaskShowFirstNImpl(val, num_digits - mask_char_count, masked_number);
@@ -239,14 +240,14 @@ static DateVal MaskImpl(FunctionContext* ctx, const DateVal& val, int day_value,
   return DateValue(year, month, day).ToDateVal();
 }
 
-static inline uint8_t getCharFromString(const StringVal& str, uint8_t default_value) {
+static inline uint8_t GetCharFromString(const StringVal& str, uint8_t default_value) {
   // To be consistent with Hive, empty string is converted to default value. String with
   // length > 1 will only use its first char.
   return str.len == 0 ? default_value : str.ptr[0];
 }
 
 /// Get digit (masked_number) from StringVal. Only accept digits or -1.
-static inline bool getDigitFromString(FunctionContext* ctx, const StringVal& str,
+static inline bool GetDigitFromString(FunctionContext* ctx, const StringVal& str,
     int* res) {
   if (str.len != 1 || str.ptr[0] < '0' || str.ptr[0] > '9') {
     ctx->SetError(Substitute("Can't convert masked_number to valid integer: '$0'",
@@ -272,10 +273,10 @@ StringVal MaskFunctions::MaskShowFirstN(FunctionContext* ctx, const StringVal& v
     const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
     const StringVal& digit_char, const StringVal& other_char) {
   return MaskShowFirstNImpl(ctx, val, char_count.val,
-      getCharFromString(upper_char, MASKED_UPPERCASE),
-      getCharFromString(lower_char, MASKED_LOWERCASE),
-      getCharFromString(digit_char, MASKED_DIGIT),
-      getCharFromString(other_char, MASKED_OTHER_CHAR));
+                            GetCharFromString(upper_char, MASKED_UPPERCASE),
+                            GetCharFromString(lower_char, MASKED_LOWERCASE),
+                            GetCharFromString(digit_char, MASKED_DIGIT),
+                            GetCharFromString(other_char, MASKED_OTHER_CHAR));
 }
 StringVal MaskFunctions::MaskShowFirstN(FunctionContext* ctx, const StringVal& val,
     const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
@@ -289,10 +290,10 @@ StringVal MaskFunctions::MaskShowFirstN(FunctionContext* ctx, const StringVal& v
     const StringVal& digit_char, const IntVal& other_char,
     const StringVal& number_char) {
   return MaskShowFirstNImpl(ctx, val, char_count.val,
-      getCharFromString(upper_char, MASKED_UPPERCASE),
-      getCharFromString(lower_char, MASKED_LOWERCASE),
-      getCharFromString(digit_char, MASKED_DIGIT),
-      other_char.val);
+                            GetCharFromString(upper_char, MASKED_UPPERCASE),
+                            GetCharFromString(lower_char, MASKED_LOWERCASE),
+                            GetCharFromString(digit_char, MASKED_DIGIT),
+                            other_char.val);
 }
 StringVal MaskFunctions::MaskShowFirstN(FunctionContext* ctx, const StringVal& val,
     const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
@@ -320,7 +321,7 @@ BigIntVal MaskFunctions::MaskShowFirstN(FunctionContext* ctx, const BigIntVal& v
     const StringVal& digit_char, const IntVal& other_char,
     const StringVal& number_char) {
   int masked_number;
-  if (!getDigitFromString(ctx, number_char, &masked_number)) return BigIntVal::null();
+  if (!GetDigitFromString(ctx, number_char, &masked_number)) return BigIntVal::null();
   return {MaskShowFirstNImpl(val, char_count.val, masked_number)};
 }
 BigIntVal MaskFunctions::MaskShowFirstN(FunctionContext* ctx, const BigIntVal& val,
@@ -344,10 +345,10 @@ StringVal MaskFunctions::MaskShowLastN(FunctionContext* ctx, const StringVal& va
     const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
     const StringVal& digit_char, const StringVal& other_char) {
   return MaskShowLastNImpl(ctx, val, char_count.val,
-      getCharFromString(upper_char, MASKED_UPPERCASE),
-      getCharFromString(lower_char, MASKED_LOWERCASE),
-      getCharFromString(digit_char, MASKED_DIGIT),
-      getCharFromString(other_char, MASKED_OTHER_CHAR));
+                           GetCharFromString(upper_char, MASKED_UPPERCASE),
+                           GetCharFromString(lower_char, MASKED_LOWERCASE),
+                           GetCharFromString(digit_char, MASKED_DIGIT),
+                           GetCharFromString(other_char, MASKED_OTHER_CHAR));
 }
 StringVal MaskFunctions::MaskShowLastN(FunctionContext* ctx, const StringVal& val,
     const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
@@ -361,10 +362,10 @@ StringVal MaskFunctions::MaskShowLastN(FunctionContext* ctx, const StringVal& va
     const StringVal& digit_char, const IntVal& other_char,
     const StringVal& number_char) {
   return MaskShowLastNImpl(ctx, val, char_count.val,
-      getCharFromString(upper_char, MASKED_UPPERCASE),
-      getCharFromString(lower_char, MASKED_LOWERCASE),
-      getCharFromString(digit_char, MASKED_DIGIT),
-      other_char.val);
+                           GetCharFromString(upper_char, MASKED_UPPERCASE),
+                           GetCharFromString(lower_char, MASKED_LOWERCASE),
+                           GetCharFromString(digit_char, MASKED_DIGIT),
+                           other_char.val);
 }
 StringVal MaskFunctions::MaskShowLastN(FunctionContext* ctx, const StringVal& val,
     const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
@@ -392,7 +393,7 @@ BigIntVal MaskFunctions::MaskShowLastN(FunctionContext* ctx, const BigIntVal& va
     const StringVal& digit_char, const IntVal& other_char,
     const StringVal& number_char) {
   int masked_number;
-  if (!getDigitFromString(ctx, number_char, &masked_number)) return BigIntVal::null();
+  if (!GetDigitFromString(ctx, number_char, &masked_number)) return BigIntVal::null();
   return {MaskShowLastNImpl(val, char_count.val, masked_number)};
 }
 BigIntVal MaskFunctions::MaskShowLastN(FunctionContext* ctx, const BigIntVal& val,
@@ -413,13 +414,29 @@ StringVal MaskFunctions::MaskFirstN(FunctionContext* ctx, const StringVal& val,
 }
 StringVal MaskFunctions::MaskFirstN(FunctionContext* ctx, const StringVal& val,
     const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+    const StringVal& digit_char, const StringVal& other_char) {
+  return MaskFirstNImpl(ctx, val, char_count.val,
+                        GetCharFromString(upper_char, MASKED_UPPERCASE),
+                        GetCharFromString(lower_char, MASKED_LOWERCASE),
+                        GetCharFromString(digit_char, MASKED_DIGIT),
+                        GetCharFromString(other_char, MASKED_OTHER_CHAR));
+}
+StringVal MaskFunctions::MaskFirstN(FunctionContext* ctx, const StringVal& val,
+    const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
     const StringVal& digit_char, const StringVal& other_char,
     const IntVal& number_char) {
+  return MaskFirstN(ctx, val, char_count, upper_char, lower_char, digit_char,
+      other_char);
+}
+StringVal MaskFunctions::MaskFirstN(FunctionContext* ctx, const StringVal& val,
+    const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+    const StringVal& digit_char, const IntVal& other_char,
+    const StringVal& number_char) {
   return MaskFirstNImpl(ctx, val, char_count.val,
-      getCharFromString(upper_char, MASKED_UPPERCASE),
-      getCharFromString(lower_char, MASKED_LOWERCASE),
-      getCharFromString(digit_char, MASKED_DIGIT),
-      getCharFromString(other_char, MASKED_OTHER_CHAR));
+                        GetCharFromString(upper_char, MASKED_UPPERCASE),
+                        GetCharFromString(lower_char, MASKED_LOWERCASE),
+                        GetCharFromString(digit_char, MASKED_DIGIT),
+                        other_char.val);
 }
 StringVal MaskFunctions::MaskFirstN(FunctionContext* ctx, const StringVal& val,
     const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
@@ -443,6 +460,14 @@ BigIntVal MaskFunctions::MaskFirstN(FunctionContext* ctx, const BigIntVal& val,
   return {MaskFirstNImpl(val, char_count.val, number_char.val)};
 }
 BigIntVal MaskFunctions::MaskFirstN(FunctionContext* ctx, const BigIntVal& val,
+    const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+    const StringVal& digit_char, const IntVal& other_char,
+    const StringVal& number_char) {
+  int masked_number;
+  if (!GetDigitFromString(ctx, number_char, &masked_number)) return BigIntVal::null();
+  return {MaskFirstNImpl(val, char_count.val, masked_number)};
+}
+BigIntVal MaskFunctions::MaskFirstN(FunctionContext* ctx, const BigIntVal& val,
     const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
     const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char) {
   return {MaskFirstNImpl(val, char_count.val, number_char.val)};
@@ -450,28 +475,44 @@ BigIntVal MaskFunctions::MaskFirstN(FunctionContext* ctx, const BigIntVal& val,
 
 /// MaskLastN overloads for string value
 StringVal MaskFunctions::MaskLastN(FunctionContext *ctx, const StringVal &val) {
-  return MaskFirstNImpl(ctx, val, 4, MASKED_UPPERCASE, MASKED_LOWERCASE,
+  return MaskLastNImpl(ctx, val, 4, MASKED_UPPERCASE, MASKED_LOWERCASE,
       MASKED_DIGIT, MASKED_OTHER_CHAR);
 }
 StringVal MaskFunctions::MaskLastN(FunctionContext* ctx, const StringVal& val,
     const IntVal& char_count) {
-  return MaskFirstNImpl(ctx, val, char_count.val, MASKED_UPPERCASE, MASKED_LOWERCASE,
+  return MaskLastNImpl(ctx, val, char_count.val, MASKED_UPPERCASE, MASKED_LOWERCASE,
       MASKED_DIGIT, MASKED_OTHER_CHAR);
+}
+StringVal MaskFunctions::MaskLastN(FunctionContext* ctx, const StringVal& val,
+    const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+    const StringVal& digit_char, const StringVal& other_char) {
+  return MaskLastNImpl(ctx, val, char_count.val,
+                       GetCharFromString(upper_char, MASKED_UPPERCASE),
+                       GetCharFromString(lower_char, MASKED_LOWERCASE),
+                       GetCharFromString(digit_char, MASKED_DIGIT),
+                       GetCharFromString(other_char, MASKED_OTHER_CHAR));
 }
 StringVal MaskFunctions::MaskLastN(FunctionContext* ctx, const StringVal& val,
     const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
     const StringVal& digit_char, const StringVal& other_char,
     const IntVal& number_char) {
-  return MaskFirstNImpl(ctx, val, char_count.val,
-      getCharFromString(upper_char, MASKED_UPPERCASE),
-      getCharFromString(lower_char, MASKED_LOWERCASE),
-      getCharFromString(digit_char, MASKED_DIGIT),
-      getCharFromString(other_char, MASKED_OTHER_CHAR));
+  return MaskLastN(ctx, val, char_count, upper_char, lower_char, digit_char,
+      other_char);
+}
+StringVal MaskFunctions::MaskLastN(FunctionContext* ctx, const StringVal& val,
+    const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+    const StringVal& digit_char, const IntVal& other_char,
+    const StringVal& number_char) {
+  return MaskLastNImpl(ctx, val, char_count.val,
+                       GetCharFromString(upper_char, MASKED_UPPERCASE),
+                       GetCharFromString(lower_char, MASKED_LOWERCASE),
+                       GetCharFromString(digit_char, MASKED_DIGIT),
+                       other_char.val);
 }
 StringVal MaskFunctions::MaskLastN(FunctionContext* ctx, const StringVal& val,
     const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
     const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char) {
-  return MaskFirstNImpl(ctx, val, char_count.val, upper_char.val, lower_char.val,
+  return MaskLastNImpl(ctx, val, char_count.val, upper_char.val, lower_char.val,
       digit_char.val, other_char.val);
 }
 
@@ -490,6 +531,14 @@ BigIntVal MaskFunctions::MaskLastN(FunctionContext* ctx, const BigIntVal& val,
   return {MaskLastNImpl(val, char_count.val, number_char.val)};
 }
 BigIntVal MaskFunctions::MaskLastN(FunctionContext* ctx, const BigIntVal& val,
+    const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+    const StringVal& digit_char, const IntVal& other_char,
+    const StringVal& number_char) {
+  int masked_number;
+  if (!GetDigitFromString(ctx, number_char, &masked_number)) return BigIntVal::null();
+  return {MaskLastNImpl(val, char_count.val, masked_number)};
+}
+BigIntVal MaskFunctions::MaskLastN(FunctionContext* ctx, const BigIntVal& val,
     const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
     const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char) {
   return {MaskLastNImpl(val, char_count.val, number_char.val)};
@@ -504,19 +553,19 @@ StringVal MaskFunctions::Mask(FunctionContext* ctx, const StringVal& val,
     const StringVal& upper_char, const StringVal& lower_char,
     const StringVal& digit_char, const StringVal& other_char) {
   return MaskImpl(ctx, val,
-      getCharFromString(upper_char, MASKED_UPPERCASE),
-      getCharFromString(lower_char, MASKED_LOWERCASE),
-      getCharFromString(digit_char, MASKED_DIGIT),
-      getCharFromString(other_char, MASKED_OTHER_CHAR));
+                  GetCharFromString(upper_char, MASKED_UPPERCASE),
+                  GetCharFromString(lower_char, MASKED_LOWERCASE),
+                  GetCharFromString(digit_char, MASKED_DIGIT),
+                  GetCharFromString(other_char, MASKED_OTHER_CHAR));
 }
 StringVal MaskFunctions::Mask(FunctionContext* ctx, const StringVal& val,
     const StringVal& upper_char, const StringVal& lower_char,
     const StringVal& digit_char, const IntVal& other_char) {
   return MaskImpl(ctx, val,
-      getCharFromString(upper_char, MASKED_UPPERCASE),
-      getCharFromString(lower_char, MASKED_LOWERCASE),
-      getCharFromString(digit_char, MASKED_DIGIT),
-      other_char.val);
+                  GetCharFromString(upper_char, MASKED_UPPERCASE),
+                  GetCharFromString(lower_char, MASKED_LOWERCASE),
+                  GetCharFromString(digit_char, MASKED_DIGIT),
+                  other_char.val);
 }
 StringVal MaskFunctions::Mask(FunctionContext* ctx, const StringVal& val,
     const StringVal& upper_char, const StringVal& lower_char,
@@ -589,7 +638,7 @@ BigIntVal MaskFunctions::Mask(FunctionContext* ctx, const BigIntVal& val,
     const StringVal& number_char, const IntVal& day_value, const IntVal& month_value,
     const IntVal& year_value) {
   int masked_number;
-  if (!getDigitFromString(ctx, number_char, &masked_number)) return BigIntVal::null();
+  if (!GetDigitFromString(ctx, number_char, &masked_number)) return BigIntVal::null();
   return {MaskShowFirstNImpl(val, 0, masked_number)};
 }
 BigIntVal MaskFunctions::Mask(FunctionContext* ctx, const BigIntVal& val,

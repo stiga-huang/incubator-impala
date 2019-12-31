@@ -23,19 +23,15 @@
 namespace impala {
 
 using impala_udf::FunctionContext;
-using impala_udf::AnyVal;
-using impala_udf::BooleanVal;
-using impala_udf::TinyIntVal;
-using impala_udf::SmallIntVal;
 using impala_udf::IntVal;
+using impala_udf::BooleanVal;
 using impala_udf::BigIntVal;
-using impala_udf::FloatVal;
-using impala_udf::DoubleVal;
 using impala_udf::DateVal;
+using impala_udf::DoubleVal;
 using impala_udf::TimestampVal;
 using impala_udf::StringVal;
-using impala_udf::DecimalVal;
 
+/// Data mask functions for Ranger column masking policies.
 class MaskFunctions {
  public:
   /// Declarations of mask_show_first_n()
@@ -121,6 +117,9 @@ class MaskFunctions {
       const IntVal& char_count);
   static StringVal MaskFirstN(FunctionContext* ctx, const StringVal& val,
       const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const StringVal& other_char);
+  static StringVal MaskFirstN(FunctionContext* ctx, const StringVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
   // The default transformer of MASK_FIRST_4 mask type is
@@ -156,12 +155,15 @@ class MaskFunctions {
       const IntVal& char_count);
   static StringVal MaskLastN(FunctionContext* ctx, const StringVal& val,
       const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const StringVal& other_char);
+  static StringVal MaskLastN(FunctionContext* ctx, const StringVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
   // The default transformer of MASK_SHOW_LAST_4 mask type is
   //   mask_show_last_n({col}, 4, 'x', 'x', 'x', -1, '1')
   // So we need this overload.
-  static StringVal MaskShowLastN(FunctionContext* ctx, const StringVal& val,
+  static StringVal MaskLastN(FunctionContext* ctx, const StringVal& val,
       const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const IntVal& other_char,
       const StringVal& number_char);
@@ -176,6 +178,10 @@ class MaskFunctions {
       const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
+  static BigIntVal MaskLastN(FunctionContext* ctx, const BigIntVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char);
   static BigIntVal MaskLastN(FunctionContext* ctx, const BigIntVal& val,
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
