@@ -10385,6 +10385,86 @@ TEST_P(ExprTest, MaskLastNTest) {
       -1410065407);
 }
 
+TEST_P(ExprTest, MaskTest) {
+  // Test overrides for string value.
+  // Replace upper case with 'X', lower case with 'x', digit chars with '0', other chars
+  // with ':'.
+  TestStringValue("mask('TestString-123', 'X', 'x', '0', ':')", "XxxxXxxxxx:000");
+  TestStringValue("mask(cast('TestString-123' as varchar(24)), 'X', 'x', '0', ':')",
+      "XxxxXxxxxx:000");
+  TestStringValue("mask(cast('TestString-123' as char(24)), 'X', 'x', '0', ':')",
+      "XxxxXxxxxx:000::::::::::");
+  TestStringValue("mask('')", "");
+  TestStringValue("mask('abcdeABCDE12345-#')", "xxxxxXXXXXnnnnn-#");
+  TestStringValue("mask('abcdeABCDE12345-#', '*', '*', '*', '*', 1)",
+      "*****************");  // The last argument 1 is unused since the value is string.
+  // Most importantly, test the override used by Ranger transformer.
+  TestStringValue("mask('abcdeABCDE12345-#', 'x', 'x', 'x', -1, '1')",
+      "xxxxxxxxxxxxxxx-#");
+  TestStringValue("mask('abcdeABCDE12345-#', '*', '*', '*', -1, '9')",
+      "***************-#");
+  // Test all int arguments. 65 = 'A', 97 = 'a', 48 = '0'.
+  TestStringValue("mask('abcdeABCDE12345-#', 65, 97, 48, -1, 9)", "aaaaaAAAAA00000-#");
+  TestStringValue("mask('abcdeABCDE12345-#', -1, -1, -1, -1, 9)", "abcdeABCDE12345-#");
+
+  // Test overrides for numeric value.
+  TestValue("mask(cast(123 as tinyint), 'x', 'x', 'x', -1, '5')", TYPE_BIGINT, 555);
+  TestValue("mask(cast(12345 as smallint), 'x', 'x', 'x', -1, '5')", TYPE_BIGINT, 55555);
+  TestValue("mask(cast(12345 as int), 'x', 'x', 'x', 'x', 5)", TYPE_BIGINT, 55555);
+  TestValue("mask(cast(12345 as bigint), -1, -1, -1, -1, -1)", TYPE_BIGINT, 11111);
+  TestValue("mask(123456789)", TYPE_BIGINT, 111111111);
+  TestValue("mask(123456789, '*', '*', '*', '*', 2)", TYPE_BIGINT, 222222222);
+  // Most importantly, test the override used by Ranger transformer.
+  TestValue("mask(123456789, 'x', 'x', 'x', -1, '1')", TYPE_BIGINT, 111111111);
+  TestValue("mask(123456789, '*', '*', '*', -1, '9')", TYPE_BIGINT, 999999999);
+  TestValue("mask(-123456789, '*', '*', '*', -1, '9')", TYPE_BIGINT, -999999999);
+  // Test all int arguments. 65 = 'A', 97 = 'a', 48 = '0'.
+  TestValue("mask(12345678, 65, 97, 48, -1, 9)", TYPE_BIGINT, 99999999);
+  // Illegal masked_number (not in [0, 9]) is converted to default value 1.
+  TestValue("mask(12345678, -1, -1, -1, -1, 10)", TYPE_BIGINT, 11111111);
+  TestValue("mask(12345678, -1, -1, -1, -1, -1)", TYPE_BIGINT, 11111111);
+
+  // Test overrides for Date value.
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, 11, 2, 2020)",
+      DateValue(2020, 3, 11));
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, 32, 12, 2020)",
+      DateValue(2020, 1, 1));
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, -1, -1, -1)",
+      DateValue(2019, 12, 31));
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, 10, -1, -1)",
+      DateValue(2019, 12, 10));
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, -1, 0, -1)",
+      DateValue(2019, 1, 31));
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, -1, -1, 10)",
+      DateValue(10, 12, 31));
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, 10, 0, -1)",
+      DateValue(2019, 1, 10));
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, 10, -1, 10)",
+      DateValue(10, 12, 10));
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, -1, 0, 10)",
+      DateValue(10, 1, 31));
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, 10, 0, 10)",
+      DateValue(10, 1, 10));
+
+  // Error handling
+  // Empty chars are converted to default values. Pick the first char for long strings.
+  TestStringValue("mask('TestString-123', '', 'bBBBB', '', 'dDDD')", "XbbbXbbbbbdnnn");
+  TestIsNull("mask(cast(NULL as STRING))", TYPE_STRING);
+  TestIsNull("mask(cast(NULL as BIGINT))", TYPE_BIGINT);
+  TestIsNull("mask(cast(NULL as DATE))", TYPE_DATE);
+  TestErrorString("mask(123456789, 'aa', 'bb', 'cc', -1, 'a')",
+      "Can't convert masked_number to valid integer: 'a'\n");
+  TestErrorString("mask(123456789, 'aa', 'bb', 'cc', -1, '10')",
+      "Can't convert masked_number to valid integer: '10'\n");
+  // Numeric overflow
+  TestValue("mask(1234567890, 'x', 'x', 'x', -1, '9')", TYPE_BIGINT, 1410065407);
+  TestValue("mask(-1234567890, 'x', 'x', 'x', -1, '9')", TYPE_BIGINT, -1410065407);
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, 10, 0, 0)",
+      DateValue(1, 1, 10));
+  TestDateValue("mask(cast('2019-12-31' as date), -1, -1, -1, -1, -1, 10, 0, 10000)",
+      DateValue(1, 1, 10));
+}
+
 TEST_P(ExprTest, MaskHashTest) {
   TestStringValue("mask_hash('TestString-123')",
       "8b44d559dc5d60e4453c9b4edf2a455fbce054bb8504cd3eb9b5f391bd239c90");

@@ -31,7 +31,39 @@ using impala_udf::DoubleVal;
 using impala_udf::TimestampVal;
 using impala_udf::StringVal;
 
-/// Data mask functions for Ranger column masking policies.
+/// Data mask functions for Ranger column masking policies. In Hive, there're 6 builtin
+/// GenericUDFs for column masking:
+///   mask_show_first_n(value, charCount, upperChar, lowerChar, digitChar, otherChar,
+///       numberChar)
+///   mask_show_last_n(value, charCount, upperChar, lowerChar, digitChar, otherChar,
+///       numberChar)
+///   mask_first_n(value, charCount, upperChar, lowerChar, digitChar, otherChar,
+///       numberChar)
+///   mask_last_n(value, charCount, upperChar, lowerChar, digitChar, otherChar,
+///       numberChar)
+///   mask_hash(value)
+///   mask(value, upperChar, lowerChar, digitChar, otherChar, numberChar, dayValue,
+///       monthValue, yearValue)
+/// Description of the parameters:
+///   value      - value to mask. Supported types: TINYINT, SMALLINT, INT, BIGINT,
+///                STRING, VARCHAR, CHAR
+///   charCount  - number of characters. Default value: 4
+///   upperChar  - character to replace upper-case characters with. Specify -1 to retain
+///                original character. Default value: 'X'
+///   lowerChar  - character to replace lower-case characters with. Specify -1 to retain
+///                original character. Default value: 'x'
+///   digitChar  - character to replace digit characters with. Specify -1 to retain
+///                original character. Default value: 'n'
+///   otherChar  - character to replace all other characters with. Specify -1 to retain
+///                original character. Default value: -1
+///   numberChar - character to replace digits in a number with. Valid values: 0-9.
+///                Default value: '1'
+///   dayValue   - value to replace day field in a date with.  Specify -1 to retain
+///                original value. Valid values: 1-31. Default value: 1
+///   monthValue - value to replace month field in a date with. Specify -1 to retain
+///                original value. Valid values: 0-11. Default value: 0
+///   yearValue  - value to replace year field in a date with. Specify -1 to retain
+///                original value. Default value: 0
 class MaskFunctions {
  public:
   /// Declarations of mask_show_first_n()
@@ -194,7 +226,15 @@ class MaskFunctions {
       const StringVal& digit_char, const StringVal& other_char);
   static StringVal Mask(FunctionContext* ctx, const StringVal& val,
       const StringVal& upper_char, const StringVal& lower_char,
-      const StringVal& digit_char, const IntVal& other_char);
+      const StringVal& digit_char, const StringVal& other_char,
+      const IntVal& number_char);
+  static StringVal Mask(FunctionContext* ctx, const StringVal& val,
+      const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char);
+  static StringVal Mask(FunctionContext* ctx, const StringVal& val,
+      const IntVal& upper_char, const IntVal& lower_char, const IntVal& digit_char,
+      const IntVal& other_char, const IntVal& number_char);
   static StringVal Mask(FunctionContext* ctx, const StringVal& val,
       const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
@@ -222,17 +262,36 @@ class MaskFunctions {
       const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char, const IntVal& day_value, const IntVal& month_value);
+  // The default transformer of MASK_DATE_SHOW_YEAR mask type is
+  //   mask({col}, 'x', 'x', 'x', -1, '1', 1, 0, -1)
+  // So we need this overload.
+  static DateVal Mask(FunctionContext* ctx, const DateVal& val,
+      const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char, const IntVal& day_value, const IntVal& month_value,
+      const IntVal& year_value);
   static DateVal Mask(FunctionContext* ctx, const DateVal& val,
       const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char, const IntVal& day_value, const IntVal& month_value,
       const IntVal& year_value);
+  static DateVal Mask(FunctionContext* ctx, const DateVal& val,
+      const IntVal& upper_char, const IntVal& lower_char, const IntVal& digit_char,
+      const IntVal& other_char, const IntVal& number_char, const IntVal& day_value,
+      const IntVal& month_value, const IntVal& year_value);
   /// Overloads for masking a numeric value
   static BigIntVal Mask(FunctionContext* ctx, const BigIntVal& val);
   static BigIntVal Mask(FunctionContext* ctx, const BigIntVal& val,
       const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
+  static BigIntVal Mask(FunctionContext* ctx, const BigIntVal& val,
+      const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char);
+  static BigIntVal Mask(FunctionContext* ctx, const BigIntVal& val,
+      const IntVal& upper_char, const IntVal& lower_char, const IntVal& digit_char,
+      const IntVal& other_char, const IntVal& number_char);
   static BigIntVal Mask(FunctionContext* ctx, const BigIntVal& val,
       const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
