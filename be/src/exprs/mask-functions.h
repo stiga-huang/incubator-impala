@@ -123,6 +123,13 @@ class MaskFunctions {
       const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
+  // The default transformer of MASK_FIRST_4 mask type is
+  //   mask_first_n({col}, 4, 'x', 'x', 'x', -1, '1')
+  // So we need this overload.
+  static StringVal MaskFirstN(FunctionContext* ctx, const StringVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char);
   static StringVal MaskFirstN(FunctionContext* ctx, const StringVal& val,
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
@@ -134,6 +141,10 @@ class MaskFunctions {
       const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
+  static BigIntVal MaskFirstN(FunctionContext* ctx, const BigIntVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char);
   static BigIntVal MaskFirstN(FunctionContext* ctx, const BigIntVal& val,
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
@@ -147,6 +158,13 @@ class MaskFunctions {
       const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
       const StringVal& digit_char, const StringVal& other_char,
       const IntVal& number_char);
+  // The default transformer of MASK_SHOW_LAST_4 mask type is
+  //   mask_show_last_n({col}, 4, 'x', 'x', 'x', -1, '1')
+  // So we need this overload.
+  static StringVal MaskShowLastN(FunctionContext* ctx, const StringVal& val,
+      const IntVal& char_count, const StringVal& upper_char, const StringVal& lower_char,
+      const StringVal& digit_char, const IntVal& other_char,
+      const StringVal& number_char);
   static StringVal MaskLastN(FunctionContext* ctx, const StringVal& val,
       const IntVal& char_count, const IntVal& upper_char, const IntVal& lower_char,
       const IntVal& digit_char, const IntVal& other_char, const IntVal& number_char);
