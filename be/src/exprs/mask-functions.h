@@ -44,9 +44,10 @@ using impala_udf::StringVal;
 ///   mask_hash(value)
 ///   mask(value, upperChar, lowerChar, digitChar, otherChar, numberChar, dayValue,
 ///       monthValue, yearValue)
+///
 /// Description of the parameters:
 ///   value      - value to mask. Supported types: TINYINT, SMALLINT, INT, BIGINT,
-///                STRING, VARCHAR, CHAR
+///                STRING, VARCHAR, CHAR, DATE(only for mask()).
 ///   charCount  - number of characters. Default value: 4
 ///   upperChar  - character to replace upper-case characters with. Specify -1 to retain
 ///                original character. Default value: 'X'
@@ -63,7 +64,24 @@ using impala_udf::StringVal;
 ///   monthValue - value to replace month field in a date with. Specify -1 to retain
 ///                original value. Valid values: 0-11. Default value: 0
 ///   yearValue  - value to replace year field in a date with. Specify -1 to retain
-///                original value. Default value: 0
+///                original value. Default value: 1
+///
+/// In Hive, these functions accept variable length of arguments in non-restricted types:
+///   mask_show_first_n(val)
+///   mask_show_first_n(val, 8)
+///   mask_show_first_n(val, 8, 'X', 'x', 'n')
+///   mask_show_first_n(val, 8, 'x', 'x', 'x', 'x', -1)
+///   mask_show_first_n(val, 8, 'x', -1, 'x', 'x', '9')
+/// The arguments of upperChar, lowerChar, digitChar, otherChar and numberChar can be in
+/// string or numeric types.
+///
+/// We currently don't have a corresponding framework for GenericUDF(IMPALA-9271), so we
+/// implement these by overloads. However, it may requires hundreds of overloads to cover
+/// all possible combinations. We just implement some important overloads, including
+///   * those used by Ranger default masking policies,
+///   * those with simple arguments and may be useful for users,
+///   * an overload with all arguments in int type for full functionality. Char argument
+///     need to be converted to their ASCII value.
 class MaskFunctions {
  public:
   /// Declarations of mask_show_first_n()
