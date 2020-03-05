@@ -23,9 +23,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.impala.common.FileSystemUtil;
+import org.apache.impala.common.Metrics;
 import org.apache.impala.service.BackendConfig;
 import org.apache.impala.util.ThreadNameAnnotator;
 import org.slf4j.Logger;
@@ -56,9 +58,14 @@ public class ParallelFileMetadataLoader {
   // Maximum number of errors logged when loading partitioned tables.
   private static final int MAX_PATH_METADATA_LOADING_ERRORS_TO_LOG = 100;
 
+  public static final String GET_REMOTE_ITERATOR_METRIC = "get-remote-iterator-duration";
+  public static final String ITERATING_METRIC = "iterating-iterator-duration";
+  public static final String GEN_FILE_DESCRIPTORS_METRICS = "gen-file-descriptors-duration";
+
   private final String logPrefix_;
   private List<FileMetadataLoader> loaders_;
   private final FileSystem fs_;
+  private final Metrics metrics_ = new Metrics();
 
   /**
    * @param logPrefix informational prefix for log messages
@@ -75,7 +82,13 @@ public class ParallelFileMetadataLoader {
     // pools based on that particular filesystem, so if there's a mixed S3+HDFS table
     // we do the right thing.
     fs_ = fs;
+
+    metrics_.addTimer(GET_REMOTE_ITERATOR_METRIC);
+    metrics_.addTimer(ITERATING_METRIC);
+    metrics_.addTimer(GEN_FILE_DESCRIPTORS_METRICS);
   }
+
+  public Metrics getMetrics() { return metrics_; }
 
   /**
    * Call 'load()' in parallel on all of the loaders. If any loaders fail, throws
@@ -103,6 +116,16 @@ public class ParallelFileMetadataLoader {
                 loaders_.get(i).getPartDir(), e);
           }
         }
+      }
+
+      for (FileMetadataLoader loader : loaders_) {
+        FileMetadataLoader.LoadStats stats = loader.getStats();
+        metrics_.getTimer(GET_REMOTE_ITERATOR_METRIC).update(
+            stats.getRemoteIteratorTimeNs, TimeUnit.NANOSECONDS);
+        metrics_.getTimer(ITERATING_METRIC).update(
+            stats.iteratingTimeNs, TimeUnit.NANOSECONDS);
+        metrics_.getTimer(GEN_FILE_DESCRIPTORS_METRICS).update(
+            stats.genFdTimeNs, TimeUnit.NANOSECONDS);
       }
     } finally {
       pool.shutdown();
