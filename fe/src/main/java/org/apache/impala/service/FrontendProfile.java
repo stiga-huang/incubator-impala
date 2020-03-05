@@ -57,6 +57,7 @@ public class FrontendProfile {
    */
   @GuardedBy("this")
   private final Map<String, TCounter> countersByName_ = new HashMap<>();
+  private final Map<String, Integer> nameCounts_ = new HashMap<>();
 
   FrontendProfile() {
     profile_ = new TRuntimeProfileNode("Frontend",
@@ -144,6 +145,12 @@ public class FrontendProfile {
     counter.value += delta;
   }
 
+  public synchronized int getAndAddNameCount(String name) {
+    Integer cnt = nameCounts_.get(name);
+    if (cnt == null) cnt = 0;
+    nameCounts_.put(name, cnt + 1);
+    return cnt;
+  }
 
   public static class Scope implements AutoCloseable {
     private final FrontendProfile oldThreadLocalValue_;

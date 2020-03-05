@@ -66,6 +66,7 @@ import org.apache.impala.catalog.PrincipalPrivilege;
 import org.apache.impala.catalog.TableLoadingException;
 import org.apache.impala.common.FileSystemUtil;
 import org.apache.impala.common.InternalException;
+import org.apache.impala.common.Metrics;
 import org.apache.impala.common.Pair;
 import org.apache.impala.service.BackendConfig;
 import org.apache.impala.service.FeSupport;
@@ -103,6 +104,7 @@ import org.ehcache.sizeof.SizeOf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.codahale.metrics.Timer;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
@@ -595,6 +597,43 @@ public class CatalogdMetaProvider implements MetaProvider {
        TimeUnit.MILLISECONDS.convert(filemetadataLoadTimeNano, TimeUnit.NANOSECONDS));
   }
 
+  private void addFsLoadingMetricsToProfile(String tableName, Metrics metrics) {
+    FrontendProfile profile = FrontendProfile.getCurrentOrNull();
+    if (profile == null) return;
+    String prefix = CATALOG_FETCH_PREFIX + "." + FILE_METADATA_LOAD_CATEGORY + "." +
+        tableName + "-" + profile.getAndAddNameCount(tableName) + ".";
+    String[] metricNames = new String[] {
+        ParallelFileMetadataLoader.GET_REMOTE_ITERATOR_METRIC,
+        ParallelFileMetadataLoader.ITERATING_METRIC,
+        ParallelFileMetadataLoader.GEN_FILE_DESCRIPTORS_METRICS};
+    for (String m : metricNames) {
+      Timer timer = metrics.getTimer(m);
+      profile.addToCounter(prefix + m + ".totalCalls", TUnit.UNIT,
+          timer.getSnapshot().size());
+      profile.addToCounter(prefix + m + ".p75", TUnit.TIME_MS,
+          TimeUnit.MILLISECONDS.convert((long)timer.getSnapshot().get75thPercentile(),
+              TimeUnit.NANOSECONDS));
+      profile.addToCounter(prefix + m + ".p95", TUnit.TIME_MS,
+          TimeUnit.MILLISECONDS.convert((long)timer.getSnapshot().get95thPercentile(),
+              TimeUnit.NANOSECONDS));
+      profile.addToCounter(prefix + m + ".p99", TUnit.TIME_MS,
+          TimeUnit.MILLISECONDS.convert((long)timer.getSnapshot().get99thPercentile(),
+              TimeUnit.NANOSECONDS));
+      profile.addToCounter(prefix + m + ".mean", TUnit.TIME_MS,
+          TimeUnit.MILLISECONDS.convert((long)timer.getSnapshot().getMean(),
+              TimeUnit.NANOSECONDS));
+      profile.addToCounter(prefix + m + ".median", TUnit.TIME_MS,
+          TimeUnit.MILLISECONDS.convert((long)timer.getSnapshot().getMedian(),
+              TimeUnit.NANOSECONDS));
+      profile.addToCounter(prefix + m + ".min", TUnit.TIME_MS,
+          TimeUnit.MILLISECONDS.convert((long)timer.getSnapshot().getMin(),
+              TimeUnit.NANOSECONDS));
+      profile.addToCounter(prefix + m + ".max", TUnit.TIME_MS,
+          TimeUnit.MILLISECONDS.convert((long)timer.getSnapshot().getMax(),
+              TimeUnit.NANOSECONDS));
+    }
+  }
+
   @Override
   public ImmutableList<String> loadDbList() throws TException {
     return loadWithCaching("database list", DB_LIST_STATS_CATEGORY, DB_LIST_CACHE_KEY,
@@ -917,7 +956,10 @@ public class CatalogdMetaProvider implements MetaProvider {
           loadersByPath.size(), hms_table.getDbName(), hms_table.getTableName());
 
       try {
-        new ParallelFileMetadataLoader(logPrefix, tableFs, loadersByPath.values()).load();
+        ParallelFileMetadataLoader parallelLoader = new ParallelFileMetadataLoader(
+            logPrefix, tableFs, loadersByPath.values());
+        parallelLoader.load();
+        addFsLoadingMetricsToProfile(fullName, parallelLoader.getMetrics());
       } catch (TableLoadingException e) {
         throw new LocalCatalogException(e.getMessage(), e);
       }

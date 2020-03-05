@@ -18,6 +18,7 @@ package org.apache.impala.catalog;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
@@ -44,6 +45,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nullable;
 
@@ -158,6 +160,7 @@ public class FileMetadataLoader {
     LOG.trace(msg);
     try (ThreadNameAnnotator tna = new ThreadNameAnnotator(msg)) {
       RemoteIterator<? extends FileStatus> fileStatuses;
+      Stopwatch sw = new Stopwatch().start();
       if (listWithLocations) {
         fileStatuses = FileSystemUtil.listFiles(fs, partDir_, recursive_);
       } else {
@@ -167,16 +170,20 @@ public class FileMetadataLoader {
         // we see that a substantial number of the files have changed, it may be better
         // to go back and re-list with locations vs doing an RPC per file.
       }
+      loadStats_.getRemoteIteratorTimeNs = sw.stop().elapsed(TimeUnit.NANOSECONDS);
       loadedFds_ = new ArrayList<>();
       if (fileStatuses == null) return;
 
       Reference<Long> numUnknownDiskIds = new Reference<Long>(Long.valueOf(0));
 
       List<FileStatus> stats = new ArrayList<>();
+      sw.reset().start();
       while (fileStatuses.hasNext()) {
         stats.add(fileStatuses.next());
       }
+      loadStats_.iteratingTimeNs = sw.stop().elapsed(TimeUnit.NANOSECONDS);
 
+      sw.reset().start();
       if (writeIds_ != null) {
         stats = AcidUtils.filterFilesForAcidState(stats, partDir_, validTxnList_,
             writeIds_, loadStats_);
@@ -206,6 +213,7 @@ public class FileMetadataLoader {
       if (LOG.isTraceEnabled()) {
         LOG.trace(loadStats_.debugString());
       }
+      loadStats_.genFdTimeNs = sw.stop().elapsed(TimeUnit.NANOSECONDS);
     }
   }
 
@@ -268,6 +276,10 @@ public class FileMetadataLoader {
     // metadata for this path.
     public int unknownDiskIds = 0;
 
+    public long getRemoteIteratorTimeNs = 0;
+    public long iteratingTimeNs = 0;
+    public long genFdTimeNs = 0;
+
     public String debugString() {
       return Objects.toStringHelper("")
         .add("path", partDir_)
@@ -277,11 +289,18 @@ public class FileMetadataLoader {
         .add("uncommited files", nullIfZero(uncommittedAcidFilesSkipped))
         .add("superceded files", nullIfZero(filesSupercededByNewerBase))
         .add("unknown diskIds", nullIfZero(unknownDiskIds))
+        .add("get remote iterator time(ns)", nullIfZero(getRemoteIteratorTimeNs))
+        .add("iterating time(ns)", nullIfZero(iteratingTimeNs))
+        .add("generate file descriptors time(ns)", nullIfZero(genFdTimeNs))
         .omitNullValues()
         .toString();
     }
 
     private Integer nullIfZero(int x) {
+      return x > 0 ? x : null;
+    }
+
+    private Long nullIfZero(long x) {
       return x > 0 ? x : null;
     }
   }
