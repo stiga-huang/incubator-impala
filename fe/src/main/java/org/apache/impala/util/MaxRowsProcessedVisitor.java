@@ -17,12 +17,11 @@
 
 package org.apache.impala.util;
 
+import com.google.common.base.Preconditions;
 import org.apache.impala.planner.JoinNode;
 import org.apache.impala.planner.PlanFragment;
 import org.apache.impala.planner.PlanNode;
 import org.apache.impala.planner.ScanNode;
-
-import com.google.common.base.Preconditions;
 
 /**
  * Returns the maximum number of rows processed by any node in a given plan tree
@@ -32,13 +31,13 @@ public class MaxRowsProcessedVisitor implements Visitor<PlanNode> {
   // True if we should abort because we don't have valid estimates
   // for a plan node.
   private boolean valid_ = true;
-  private boolean foundJoinNode_ ;
+  private boolean foundJoinNode_ = false;
 
   // Max number of rows processed across all instances of a plan node.
-  private long maxRowsProcessed_ ;
+  private long maxRowsProcessed_ = 0;
 
   // Max number of rows processed per backend impala daemon for a plan node.
-  private long maxRowsProcessedPerNode_;
+  private long maxRowsProcessedPerNode_ = 0;
 
   @Override
   public void visit(PlanNode caller) {
