@@ -608,8 +608,7 @@ public class CatalogdMetaProvider implements MetaProvider {
         ParallelFileMetadataLoader.GEN_FILE_DESCRIPTORS_METRICS};
     for (String m : metricNames) {
       Timer timer = metrics.getTimer(m);
-      profile.addToCounter(prefix + m + ".totalCalls", TUnit.UNIT,
-          timer.getSnapshot().size());
+      profile.addToCounter(prefix + m + ".totalCalls", TUnit.UNIT, timer.getCount());
       profile.addToCounter(prefix + m + ".p75", TUnit.TIME_MS,
           TimeUnit.MILLISECONDS.convert((long)timer.getSnapshot().get75thPercentile(),
               TimeUnit.NANOSECONDS));
