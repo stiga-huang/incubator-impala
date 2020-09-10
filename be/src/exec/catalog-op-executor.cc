@@ -133,6 +133,8 @@ Status CatalogOpExecutor::ExecComputeStats(
   update_stats_req.__set_ddl_type(TDdlType::ALTER_TABLE);
   update_stats_req.__set_sync_ddl(compute_stats_request.sync_ddl);
   update_stats_req.__set_debug_action(compute_stats_request.ddl_params.debug_action);
+  update_stats_req.__set_header(TCatalogServiceRequestHeader());
+  update_stats_req.header.__set_want_minimal_response(FLAGS_use_local_catalog);
 
   const TComputeStatsParams& compute_stats_params =
       compute_stats_request.ddl_params.compute_stats_params;
