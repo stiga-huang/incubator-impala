@@ -65,6 +65,7 @@ public class FileSystemUtil {
   public static final String SCHEME_S3A = "s3a";
   public static final String SCHEME_O3FS = "o3fs";
   public static final String SCHEME_ALLUXIO = "alluxio";
+  public static final String SCHEME_GCS = "gs";
 
   /**
    * Set containing all FileSystem scheme that known to supports storage UUIDs in
@@ -89,6 +90,7 @@ public class FileSystemUtil {
           .add(SCHEME_HDFS)
           .add(SCHEME_S3A)
           .add(SCHEME_O3FS)
+          .add(SCHEME_GCS)
           .build();
 
   /**
@@ -101,6 +103,7 @@ public class FileSystemUtil {
           .add(SCHEME_ADL)
           .add(SCHEME_HDFS)
           .add(SCHEME_S3A)
+          .add(SCHEME_GCS)
           .build();
 
   /**
@@ -114,6 +117,7 @@ public class FileSystemUtil {
           .add(SCHEME_HDFS)
           .add(SCHEME_S3A)
           .add(SCHEME_O3FS)
+          .add(SCHEME_GCS)
           .build();
 
   /**
@@ -385,6 +389,13 @@ public class FileSystemUtil {
   }
 
   /**
+   * Returns true iff the filesystem is a GoogleHadoopFileSystem.
+   */
+  public static boolean isGCSFileSystem(FileSystem fs) {
+    return hasScheme(fs, SCHEME_GCS);
+  }
+
+  /**
    * Returns true iff the filesystem is AdlFileSystem.
    */
   public static boolean isADLFileSystem(FileSystem fs) {
@@ -491,7 +502,8 @@ public class FileSystemUtil {
     LOCAL,
     S3,
     OZONE,
-    ALLUXIO;
+    ALLUXIO,
+    GCS;
 
     private static final Map<String, FsType> SCHEME_TO_FS_MAPPING =
         ImmutableMap.<String, FsType>builder()
@@ -503,6 +515,7 @@ public class FileSystemUtil {
             .put(SCHEME_S3A, S3)
             .put(SCHEME_O3FS, OZONE)
             .put(SCHEME_ALLUXIO, ALLUXIO)
+            .put(SCHEME_GCS, GCS)
             .build();
 
     /**
