@@ -676,7 +676,7 @@ public class FileSystemUtil {
         return new FilterIterator(p, new RecursingIterator(fs, p));
       }
       DebugUtils.executeDebugAction(debugAction, DebugUtils.REFRESH_HDFS_LISTING_DELAY);
-      return new FilterIterator(p, fs.listStatusIterator(p));
+      return new FilterIterator(p, listStatusIterator(fs, p));
     } catch (FileNotFoundException e) {
       if (LOG.isWarnEnabled()) LOG.warn("Path does not exist: " + p.toString(), e);
       return null;
@@ -695,6 +695,24 @@ public class FileSystemUtil {
       if (LOG.isWarnEnabled()) LOG.warn("Path does not exist: " + p.toString(), e);
       return null;
     }
+  }
+
+  /**
+   * Wrapper around FileSystem.listStatusIterator() to make sure the path exists.
+   *
+   * @throws FileNotFoundException if <code>p</code> does not exist
+   * @throws IOException if any I/O error occurredd
+   */
+  public static RemoteIterator<FileStatus> listStatusIterator(FileSystem fs, Path p)
+      throws IOException {
+    RemoteIterator<FileStatus> iterator = fs.listStatusIterator(p);
+    // Before HADOOP-16685, some FileSystem implementations (e.g. AzureBlobFileSystem,
+    // GoogleHadoopFileSystem and S3AFileSystem(pre-HADOOP-17281)) don't check
+    // existence of the start path when creating the RemoteIterator. Instead, their
+    // iterators throw the FileNotFoundException in the first call of hasNext() when
+    // the start path doesn't exist. Here we call hasNext() to ensure start path exists.
+    iterator.hasNext();
+    return iterator;
   }
 
   /**
@@ -792,19 +810,9 @@ public class FileSystemUtil {
       // state)
       while (curFile_ == null) {
         FileStatus next;
-        try {
-          if (!baseIterator_.hasNext()) return false;
-          // if the next fileStatus is in ignored directory skip it
-           next = baseIterator_.next();
-        } catch (FileNotFoundException ex) {
-          // in case of concurrent operations by multiple engines it is possible that
-          // some temporary files are deleted while Impala is loading the table. For
-          // instance, hive deletes the temporary files in the .hive-staging directory
-          // after an insert query from Hive completes. If we are loading the table at
-          // the same time, we may get a FileNotFoundException which is safe to ignore.
-          LOG.warn(ex.getMessage());
-          continue;
-        }
+        if (!baseIterator_.hasNext()) return false;
+        next = baseIterator_.next();
+        // if the next fileStatus is in ignored directory skip it
         if (!isInIgnoredDirectory(startPath_, next)) {
           curFile_ = next;
           return true;
@@ -836,7 +844,7 @@ public class FileSystemUtil {
 
     private RecursingIterator(FileSystem fs, Path startPath) throws IOException {
       this.fs_ = Preconditions.checkNotNull(fs);
-      curIter_ = fs.listStatusIterator(Preconditions.checkNotNull(startPath));
+      curIter_ = listStatusIterator(fs, Preconditions.checkNotNull(startPath));
     }
 
     @Override
@@ -846,8 +854,17 @@ public class FileSystemUtil {
       // state)
       while (curFile_ == null) {
         if (curIter_.hasNext()) {
-          // Consume the next file or directory from the current iterator.
-          handleFileStat(curIter_.next());
+          try {
+            // Consume the next file or directory from the current iterator.
+            handleFileStat(curIter_.next());
+          } catch (FileNotFoundException e) {
+            // in case of concurrent operations by multiple engines it is possible that
+            // some temporary files are deleted while Impala is loading the table. For
+            // instance, hive deletes the temporary files in the .hive-staging directory
+            // after an insert query from Hive completes. If we are loading the table at
+            // the same time, we may get a FileNotFoundException which is safe to ignore.
+            LOG.warn("Ignoring non-existing sub dir", e);
+          }
         } else if (!iters_.empty()) {
           // We ran out of entries in the current one, but we might still have
           // entries at a higher level of recursion.
@@ -873,8 +890,10 @@ public class FileSystemUtil {
         curFile_ = fileStatus;
         return;
       }
+      // Get sub iterator before updating curIter_ in case it throws exceptions.
+      RemoteIterator<FileStatus> subIter = listStatusIterator(fs_, fileStatus.getPath());
       iters_.push(curIter_);
-      curIter_ = fs_.listStatusIterator(fileStatus.getPath());
+      curIter_ = subIter;
       curFile_ = fileStatus;
     }
 
