@@ -164,19 +164,45 @@ select * from $UNIQUE_DB.masked_view
 INT
 ====
 ---- QUERY
-# TODO(IMPALA-10483): support using subquery on the same table as the row-filter expression
-select count(*) from functional.alltypesagg
+# Test subquery row filter "id = (select min(id) from functional.alltypesagg)"
+select id, bool_col, string_col from functional.alltypesagg
 ---- RESULTS
----- CATCH
-AnalysisException: Column-masking/Row-filtering expressions using subqueries are not
- supported (IMPALA-10483). Table(s) in the subquery: [functional.alltypesagg]
+0,true,'0'
+0,true,'0'
+---- TYPES
+INT,BOOLEAN,STRING
 ====
 ---- QUERY
-# TODO(IMPALA-10483): support using subquery on other tables as the row-filter expression
+# Test subquery row filter "id = (select min(id) from functional.alltypesagg)"
+select count(*) from functional.alltypesagg
+---- RESULTS
+2
+---- TYPES
+BIGINT
+====
+---- QUERY
+# Test subquery row filter "id in (select id from functional.alltypestiny)"
+select id, bool_col, string_col from functional_parquet.alltypesagg
+---- RESULTS
+0,true,'0'
+0,true,'0'
+1,false,'1'
+2,true,'2'
+3,false,'3'
+4,true,'4'
+5,false,'5'
+6,true,'6'
+7,false,'7'
+---- TYPES
+INT,BOOLEAN,STRING
+====
+---- QUERY
+# Test subquery row filter "id in (select id from functional.alltypestiny)"
 select count(*) from functional_parquet.alltypesagg
----- CATCH
-AnalysisException: Column-masking/Row-filtering expressions using subqueries are not
- supported (IMPALA-10483). Table(s) in the subquery: [functional.alltypestiny]
+---- RESULTS
+9
+---- TYPES
+BIGINT
 ====
 ---- QUERY
 # Row-filtering policy keeps rows with "nested_struct.a is not NULL"

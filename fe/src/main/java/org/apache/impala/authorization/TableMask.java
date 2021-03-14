@@ -70,10 +70,7 @@ public class TableMask {
     return authChecker_.needsRowFiltering(user_, dbName_, tableName_);
   }
 
-  /**
-   * Return the masked Expr of the given column
-   */
-  public Expr createColumnMask(String colName, Type colType,
+  public SelectStmt createColumnMaskStmt(String colName, Type colType,
       AuthorizationContext authzCtx) throws InternalException,
       AnalysisException {
     Preconditions.checkState(!colType.isComplexType());
@@ -84,7 +81,7 @@ public class TableMask {
           dbName_, tableName_, colName, maskedValue);
     }
     if (maskedValue == null || maskedValue.equals(colName)) {  // Don't need masking.
-      return new SlotRef(Lists.newArrayList(colName));
+      return null;
     }
     SelectStmt maskStmt = (SelectStmt) Parser.parse(
         String.format("SELECT CAST(%s AS %s)", maskedValue, colType));
@@ -92,6 +89,17 @@ public class TableMask {
         || maskStmt.hasHavingClause() || maskStmt.hasWhereClause()) {
       throw new AnalysisException("Illegal column masked value: " + maskedValue);
     }
+    return maskStmt;
+  }
+
+  /**
+   * Return the masked Expr of the given column
+   */
+  public Expr createColumnMask(String colName, Type colType,
+      AuthorizationContext authzCtx) throws InternalException,
+      AnalysisException {
+    SelectStmt maskStmt = createColumnMaskStmt(colName, colType, authzCtx);
+    if (maskStmt == null) return new SlotRef(Lists.newArrayList(colName));
     Expr res = maskStmt.getSelectList().getItems().get(0).getExpr();
     if (LOG.isTraceEnabled()) {
       LOG.trace("Returned Expr: " + res.toSql());
@@ -99,16 +107,22 @@ public class TableMask {
     return res;
   }
 
-  /**
-   * Return the row filter Expr
-   */
-  public Expr createRowFilter(AuthorizationContext authzCtx)
+  public SelectStmt createRowFilterStmt(AuthorizationContext authzCtx)
       throws InternalException, AnalysisException {
     String rowFilter = authChecker_.createRowFilter(user_, dbName_, tableName_, authzCtx);
     if (rowFilter == null) return null;
     String stmtSql = String.format("SELECT * FROM %s.%s WHERE %s",
         dbName_, tableName_, rowFilter);
-    SelectStmt selectStmt = (SelectStmt) Parser.parse(stmtSql);
+    return (SelectStmt) Parser.parse(stmtSql);
+  }
+
+  /**
+   * Return the row filter Expr
+   */
+  public Expr createRowFilter(AuthorizationContext authzCtx)
+      throws InternalException, AnalysisException {
+    SelectStmt selectStmt = createRowFilterStmt(authzCtx);
+    if (selectStmt == null) return null;
     Expr wherePredicate = selectStmt.getWhereClause();
     // No recursive masking, i.e. table refs introduced in subquery row-filters won't be
     // masked. This is consistent to Hive. The other reason is to avoid infinitely masking
