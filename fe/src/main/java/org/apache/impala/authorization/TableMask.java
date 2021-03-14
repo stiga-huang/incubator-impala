@@ -109,6 +109,11 @@ public class TableMask {
     String stmtSql = String.format("SELECT * FROM %s.%s WHERE %s",
         dbName_, tableName_, rowFilter);
     SelectStmt selectStmt = (SelectStmt) Parser.parse(stmtSql);
-    return selectStmt.getWhereClause();
+    Expr wherePredicate = selectStmt.getWhereClause();
+    // No recursive masking, i.e. table refs introduced in subquery row-filters won't be
+    // masked. This is consistent to Hive. The other reason is to avoid infinitely masking
+    // when the subqeury filter use the same table.
+    wherePredicate.setDoTableMasking(false);
+    return wherePredicate;
   }
 }

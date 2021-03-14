@@ -163,4 +163,9 @@ public class Subquery extends Expr {
 
   @Override
   protected void toThrift(TExprNode msg) {}
+
+  @Override
+  public void setDoTableMasking(boolean doTableMasking) {
+    stmt_.setDoTableMasking(doTableMasking);
+  }
 }

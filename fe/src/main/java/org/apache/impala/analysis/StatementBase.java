@@ -228,4 +228,11 @@ public abstract class StatementBase extends StmtNode {
     }
     return srcExpr.castTo(compatType);
   }
+
+  /**
+   * Sets whether we should perform table masking when analyzing the FromClauses. Used in
+   * CreateView and AlterView statements since they don't actually read the data. Also
+   * used to avoid recursively masking.
+   */
+  public void setDoTableMasking(boolean doTableMasking) {}
 }

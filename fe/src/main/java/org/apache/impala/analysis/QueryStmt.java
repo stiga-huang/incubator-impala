@@ -167,12 +167,10 @@ public abstract class QueryStmt extends StatementBase {
     if (hasWithClause()) withClause_.analyze(analyzer);
   }
 
-  /**
-   * Disable table masking when analyzing the FromClauses. Used in CreateView and
-   * AlterView statements since they don't actually read the data.
-   * @param doTableMasking
-   */
-  public void setDoTableMasking(boolean doTableMasking) {}
+  @Override
+  public void setDoTableMasking(boolean doTableMasking) {
+    if (hasWithClause()) withClause_.setDoTableMasking(doTableMasking);
+  }
 
   /**
    * Returns a list containing all the materialized tuple ids that this stmt is

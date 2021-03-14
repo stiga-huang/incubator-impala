@@ -121,6 +121,11 @@ public class InlineViewRef extends TableRef {
     sampleParams_ = origTblRef.getSampleParams();
   }
 
+  public InlineViewRef(FeView view, TableRef origTblRef, boolean doTableMasking) {
+    this(view, origTblRef);
+    queryStmt_.setDoTableMasking(doTableMasking);
+  }
+
   /**
    * C'tor for cloning.
    */

@@ -63,6 +63,12 @@ public class WithClause extends StmtNode {
     views_ = views;
   }
 
+  public void setDoTableMasking(boolean doTableMasking) {
+    for (View view : views_) {
+      view.getQueryStmt().setDoTableMasking(doTableMasking);
+    }
+  }
+
   /**
    * Analyzes all views and registers them with the analyzer. Enforces scoping rules.
    * All local views registered with the analyzer are have QueryStmts with resolved

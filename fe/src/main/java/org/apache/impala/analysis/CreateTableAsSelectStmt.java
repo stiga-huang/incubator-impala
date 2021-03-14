@@ -286,4 +286,9 @@ public class CreateTableAsSelectStmt extends StatementBase {
     createStmt_.getPartitionColumnDefs().clear();
     insertStmt_.reset();
   }
+
+  @Override
+  public void setDoTableMasking(boolean doTableMasking) {
+    insertStmt_.setDoTableMasking(doTableMasking);
+  }
 }

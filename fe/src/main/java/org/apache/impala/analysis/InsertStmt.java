@@ -1179,4 +1179,9 @@ public class InsertStmt extends StatementBase {
     tblRefs.add(new TableRef(targetTableName_.toPath(), null));
     if (queryStmt_ != null) queryStmt_.collectTableRefs(tblRefs);
   }
+
+  @Override
+  public void setDoTableMasking(boolean doTableMasking) {
+    if (queryStmt_ != null) queryStmt_.setDoTableMasking(doTableMasking);
+  }
 }

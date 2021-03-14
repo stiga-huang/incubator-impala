@@ -266,7 +266,9 @@ public class SelectStmt extends QueryStmt {
 
   @Override
   public void setDoTableMasking(boolean doTableMasking) {
+    super.setDoTableMasking(doTableMasking);
     fromClause_.setDoTableMasking(doTableMasking);
+    if (whereClause_ != null) whereClause_.setDoTableMasking(doTableMasking);
   }
 
   /**

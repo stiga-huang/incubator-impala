@@ -759,7 +759,9 @@ public class Analyzer {
       Analyzer analyzer = this;
       do {
         FeView localView = analyzer.localViews_.get(viewAlias);
-        if (localView != null) return new InlineViewRef(localView, tableRef);
+        if (localView != null) {
+          return new InlineViewRef(localView, tableRef, /*doTableMasking*/false);
+        }
         analyzer = (analyzer.ancestors_.isEmpty() ? null : analyzer.ancestors_.get(0));
       } while (analyzer != null);
     }
@@ -786,7 +788,7 @@ public class Analyzer {
       FeTable table = resolvedPath.destTable();
       TableRef resolvedTableRef;
       if (table instanceof FeView) {
-        resolvedTableRef = new InlineViewRef((FeView) table, tableRef);
+        resolvedTableRef = new InlineViewRef((FeView) table, tableRef, doTableMasking);
       } else {
         // The table must be a base table.
         Preconditions.checkState(table instanceof FeFsTable ||

@@ -1842,4 +1842,13 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     return new NullLiteral();
   }
 
+  /**
+   * Sets whether we should perform table masking when analyzing the Expr. Used to avoid
+   * recursively masking when analyzing a subquery row-filter.
+   */
+  public void setDoTableMasking(boolean doTableMasking) {
+    for (Expr c : children_) {
+      c.setDoTableMasking(doTableMasking);
+    }
+  }
 }
